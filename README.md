@@ -138,3 +138,25 @@ See [docs/architecture.md](docs/architecture.md) for design notes.
 swift build -c release
 .build/release/parrot --help
 ```
+
+For repeated local installs, `scripts/dev-install.sh` builds, signs with a
+local `parrot-dev` identity, installs to `/usr/local/bin`, and restarts the
+LaunchAgent. Signing matters: macOS ties the Accessibility grant to the code
+signature, so unsigned builds need the permission re-granted after every
+update, while builds signed with the same certificate keep it. One-time setup —
+create and trust a self-signed code-signing certificate named `parrot-dev`:
+
+```sh
+openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
+  -subj "/CN=parrot-dev" -keyout parrot-dev.key -out parrot-dev.crt \
+  -addext "keyUsage=critical,digitalSignature" \
+  -addext "extendedKeyUsage=critical,codeSigning" \
+  -addext "basicConstraints=critical,CA:false"
+openssl pkcs12 -export -legacy -inkey parrot-dev.key -in parrot-dev.crt \
+  -out parrot-dev.p12 -passout pass:parrot-dev -name parrot-dev
+security import parrot-dev.p12 -k ~/Library/Keychains/login.keychain-db \
+  -P parrot-dev -T /usr/bin/codesign
+security add-trusted-cert -r trustRoot \
+  -k ~/Library/Keychains/login.keychain-db parrot-dev.crt
+rm parrot-dev.key parrot-dev.crt parrot-dev.p12
+```
