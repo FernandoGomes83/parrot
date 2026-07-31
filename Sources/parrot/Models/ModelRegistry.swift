@@ -17,6 +17,16 @@ enum ModelRegistry {
             recommended: true
         ),
         TranscriptionModel(
+            id: "parakeet-tdt-0.6b-v3",
+            displayName: "Parakeet TDT 0.6B v3 (multilingual)",
+            engine: .parakeet,
+            whisperKitID: nil,
+            // Preprocessor + int8 Encoder + Decoder + JointDecision + vocab.
+            sizeMB: 483,
+            languages: ["multi"],
+            recommended: false
+        ),
+        TranscriptionModel(
             id: "whisper-large-v3-turbo",
             displayName: "Whisper Large v3 Turbo",
             engine: .whisperKit,

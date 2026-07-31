@@ -38,6 +38,7 @@ parrot doctor                          # check permissions + fn key setting
 parrot models list                     # list available models
 parrot models download <id>            # pre-download a model
 parrot --model whisper-large-v3-turbo  # bigger, multilingual, slower first-run
+parrot --model parakeet-tdt-0.6b-v3    # multilingual (25 langs, incl. pt), fast
 parrot --hotkey right-option           # change the push-to-talk key
 parrot --no-overlay                    # disable the bottom-of-screen pill
 ```
@@ -50,6 +51,7 @@ is applied immediately and remembered for future launches.
 
 - **Swift** — single SPM executable target
 - **WhisperKit** — Whisper inference via CoreML, ANE-accelerated
+- **FluidAudio** — Parakeet TDT 0.6B v3 inference (multilingual, CoreML/ANE)
 - **AVAudioEngine** — mic capture
 - **CGEventTap** — global hotkey
 - **CGEvent** — text injection at cursor
