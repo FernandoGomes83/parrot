@@ -26,8 +26,8 @@ struct Install: ParsableCommand {
     @Argument(help: "Model id to use with --select-model.")
     var selectedModelID: String?
 
-    @Flag(name: .long, help: "Keep daemon output in ~/Library/Logs/parrot.log (mode 0600). Off by default; output is discarded.")
-    var logFile: Bool = false
+    @Flag(name: .long, inversion: .prefixedNo, help: "Keep daemon output in ~/Library/Logs/parrot.log (mode 0600). When omitted, an existing agent keeps its current setting; a fresh install discards output.")
+    var logFile: Bool?
 
     @Flag(name: .long, help: "Delete the world-readable /tmp/parrot.{out,err}.log files left by earlier versions.")
     var purgeLegacyLogs: Bool = false
@@ -81,8 +81,12 @@ struct Install: ParsableCommand {
             programArguments.append(contentsOf: ["--model", selectedModelID])
         }
 
+        // --select-model (and any other rewrite) must not silently drop a
+        // previously chosen log destination, so an omitted flag means "keep
+        // whatever the current plist says".
+        let keepLog = logFile ?? existingAgentKeepsLogs()
         let logPath: String
-        if logFile {
+        if keepLog {
             logPath = try prepareLogFile()
         } else {
             logPath = "/dev/null"
@@ -99,7 +103,7 @@ struct Install: ParsableCommand {
             "StandardOutPath": logPath,
             "StandardErrorPath": logPath,
         ]
-        if logFile {
+        if keepLog {
             // launchd recreates a missing std-path file under its own umask
             // (0644), so the 0600 degrades the first time the log is deleted.
             // plists can't encode octal: 127 is 0o177.
@@ -140,11 +144,24 @@ struct Install: ParsableCommand {
         if let selectedModelID {
             print("  model:  \(selectedModelID)")
         }
-        if logFile {
+        if keepLog {
             print("  logs:   \(logPath) (mode 0600)")
         } else {
             print("  logs:   discarded — pass --log-file to keep them")
         }
+    }
+
+    /// Whether the currently installed agent writes its output to a log file
+    /// (anything other than /dev/null). Missing or unreadable plist means no.
+    private func existingAgentKeepsLogs() -> Bool {
+        guard
+            let data = try? Data(contentsOf: plistURL),
+            let plist = try? PropertyListSerialization.propertyList(
+                from: data, options: [], format: nil
+            ) as? [String: Any],
+            let path = plist["StandardErrorPath"] as? String
+        else { return false }
+        return path != "/dev/null"
     }
 
     /// launchd appends to an existing std-path file and leaves its mode alone,
