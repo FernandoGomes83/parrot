@@ -14,7 +14,7 @@ enum ModelRegistry {
             whisperKitID: "openai_whisper-base.en",
             sizeMB: 145,
             languages: ["en"],
-            recommended: true
+            recommended: false
         ),
         TranscriptionModel(
             id: "parakeet-tdt-0.6b-v3",
@@ -24,7 +24,7 @@ enum ModelRegistry {
             // Preprocessor + int8 Encoder + Decoder + JointDecision + vocab.
             sizeMB: 483,
             languages: ["multi"],
-            recommended: false
+            recommended: true
         ),
         TranscriptionModel(
             id: "whisper-large-v3-turbo",
