@@ -76,8 +76,19 @@ parrot models download <id>            # pre-download a model
 parrot --model whisper-large-v3-turbo  # bigger, multilingual, slower first-run
 parrot --model parakeet-tdt-0.6b-v3    # multilingual (25 langs, incl. pt), fast
 parrot --hotkey right-option           # change the push-to-talk key
+parrot --inject-mode type-unicode      # type the text instead of pasting it
 parrot --no-overlay                    # disable the bottom-of-screen pill
 ```
+
+### Injection modes
+
+`--inject-mode paste` (the default) puts the transcript on the pasteboard,
+sends ⌘V, and restores your previous pasteboard contents. Terminals and
+Electron apps discard synthesized unicode key events but all handle paste, so
+this is the mode that works everywhere.
+
+`--inject-mode type-unicode` synthesizes the characters directly and never
+touches the pasteboard, at the cost of silently dropping text in those apps.
 
 You can also change the push-to-talk key while Parrot is running: click its
 menu-bar icon, open **Push-to-talk key**, and choose a modifier. The selection

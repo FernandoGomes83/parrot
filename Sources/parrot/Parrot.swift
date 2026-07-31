@@ -43,6 +43,12 @@ struct Run: ParsableCommand {
     )
     var hotkey: HotkeyMonitor.Hotkey?
 
+    @Option(
+        name: .long,
+        help: "How the transcript reaches the app: paste (⌘V, works everywhere; pasteboard restored) or type-unicode (no pasteboard, but terminals and Electron apps drop it)."
+    )
+    var injectMode: TextInjector.Mode = .paste
+
     func run() throws {
         let selectedHotkey = hotkey ?? HotkeyPreferences.selected
         if let hotkey {
@@ -100,6 +106,7 @@ struct Run: ParsableCommand {
         let capture = AudioCapture()
         let dumpWav = self.dumpWav
         let echoTranscripts = self.echoTranscripts
+        let injectMode = self.injectMode
         let overlay: RecordingOverlay? = noOverlay ? nil : MainActor.assumeIsolated { RecordingOverlay() }
         if let overlay {
             capture.onLevel = { level in overlay.pushLevel(level) }
@@ -161,7 +168,7 @@ struct Run: ParsableCommand {
                                 : String(format: "→ %.2fs · %ld chars\n", elapsed, text.count)
                             FileHandle.standardError.write(Data(line.utf8))
                             await MainActor.run {
-                                TextInjector.inject(text)
+                                TextInjector.inject(text, mode: injectMode)
                                 overlay?.hide()
                                 menuBar.setRecording(false)
                             }
@@ -200,6 +207,7 @@ struct Run: ParsableCommand {
 }
 
 extension HotkeyMonitor.Hotkey: ExpressibleByArgument {}
+extension TextInjector.Mode: ExpressibleByArgument {}
 
 /// Destination for `--dump-wav`. Recorded audio is as sensitive as the
 /// transcript, so it stays out of world-readable /tmp.
