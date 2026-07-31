@@ -9,18 +9,22 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let modelLabel: NSMenuItem
     private let stateLabel: NSMenuItem
     private let inputItem: NSMenuItem
-    private let modelID: String
+    private let modelItem: NSMenuItem
+    private var model: TranscriptionModel
     private var hotkey: HotkeyMonitor.Hotkey
     private let devices: InputDeviceStore
     private let onHotkeyChanged: (HotkeyMonitor.Hotkey) -> Void
+    /// Set by the daemon right after init — the handler needs the controller
+    /// itself to report the outcome, so it can't be passed in.
+    var onModelChanged: ((TranscriptionModel) -> Void)?
 
     init(
-        modelID: String,
+        model: TranscriptionModel,
         hotkey: HotkeyMonitor.Hotkey,
         devices: InputDeviceStore,
         onHotkeyChanged: @escaping (HotkeyMonitor.Hotkey) -> Void
     ) {
-        self.modelID = modelID
+        self.model = model
         self.hotkey = hotkey
         self.devices = devices
         self.onHotkeyChanged = onHotkeyChanged
@@ -36,7 +40,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         )
         stateLabel.isEnabled = false
 
-        modelLabel = NSMenuItem(title: "model: \(modelID)", action: nil, keyEquivalent: "")
+        modelLabel = NSMenuItem(title: "model: \(model.id)", action: nil, keyEquivalent: "")
         modelLabel.isEnabled = false
 
         inputItem = NSMenuItem(title: "Input", action: nil, keyEquivalent: "")
@@ -44,12 +48,30 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         inputMenu.autoenablesItems = false
         inputItem.submenu = inputMenu
 
+        modelItem = NSMenuItem(title: "Model", action: nil, keyEquivalent: "")
+        let modelMenu = NSMenu()
+        modelMenu.autoenablesItems = false
+        modelItem.submenu = modelMenu
+
         // All stored properties are set; NSObject init must precede the menu
         // items below, which take self as their target.
         super.init()
 
+        for candidate in ModelRegistry.shared {
+            let item = NSMenuItem(
+                title: candidate.displayName,
+                action: #selector(modelClicked(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = candidate.id
+            item.state = candidate.id == model.id ? .on : .off
+            modelMenu.addItem(item)
+        }
+
         menu.addItem(stateLabel)
         menu.addItem(modelLabel)
+        menu.addItem(modelItem)
         menu.addItem(inputItem)
 
         menu.addItem(.separator())
@@ -172,6 +194,39 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         for item in sender.menu?.items ?? [] {
             item.state = item === sender ? .on : .off
+        }
+    }
+
+    /// Loading a model can mean downloading hundreds of megabytes, so the swap
+    /// is optimistic in the menu only: the daemon keeps dictating with the old
+    /// model until `modelSwitchSucceeded` (or `modelSwitchFailed`) comes back.
+    @objc private func modelClicked(_ sender: NSMenuItem) {
+        guard
+            let id = sender.representedObject as? String,
+            let selected = ModelRegistry.find(id),
+            selected.id != model.id
+        else { return }
+
+        checkModel(id: selected.id)
+        stateLabel.title = "loading \(selected.id)…"
+        onModelChanged?(selected)
+    }
+
+    func modelSwitchSucceeded(_ newModel: TranscriptionModel) {
+        model = newModel
+        modelLabel.title = "model: \(newModel.id)"
+        checkModel(id: newModel.id)
+        setRecording(false)
+    }
+
+    func modelSwitchFailed() {
+        checkModel(id: model.id)
+        setRecording(false)
+    }
+
+    private func checkModel(id: String) {
+        for item in modelItem.submenu?.items ?? [] {
+            item.state = (item.representedObject as? String) == id ? .on : .off
         }
     }
 }

@@ -73,6 +73,9 @@ struct Run: ParsableCommand {
                 throw ExitCode(1)
             }
             chosenModel = m
+            ModelPreferences.selected = m
+        } else if let saved = ModelPreferences.selected {
+            chosenModel = saved
         } else {
             guard let m = ModelRegistry.recommended() else {
                 FileHandle.standardError.write(Data("no models registered\n".utf8))
@@ -111,10 +114,23 @@ struct Run: ParsableCommand {
         if let overlay {
             capture.onLevel = { level in overlay.pushLevel(level) }
         }
+        // Swapping models at runtime means the transcriber can't be captured
+        // directly by the hotkey closure. Both the menu callbacks and the
+        // monitor events run on the main queue, so plain main-thread access to
+        // the holder needs no further synchronization.
+        let holder = MainActor.assumeIsolated { TranscriberHolder(transcriber) }
         let menuBar = MainActor.assumeIsolated {
-            MenuBarController(modelID: chosenModel.id, hotkey: selectedHotkey, devices: devices) {
-                monitor.setHotkey($0)
+            let controller = MenuBarController(
+                model: chosenModel,
+                hotkey: selectedHotkey,
+                devices: devices,
+                onHotkeyChanged: { monitor.setHotkey($0) }
+            )
+            controller.onModelChanged = { [weak controller] newModel in
+                guard let controller else { return }
+                switchModel(to: newModel, holder: holder, menuBar: controller)
             }
+            return controller
         }
 
         do {
@@ -158,10 +174,11 @@ struct Run: ParsableCommand {
                         }
                         return
                     }
+                    let active = MainActor.assumeIsolated { holder.transcriber }
                     Task {
                         let started = Date()
                         do {
-                            let text = try await transcriber.transcribe(samples)
+                            let text = try await active.transcribe(samples)
                             let elapsed = Date().timeIntervalSince(started)
                             let line = echoTranscripts
                                 ? String(format: "→ %.2fs · %@\n", elapsed, text)
@@ -203,6 +220,44 @@ struct Run: ParsableCommand {
             "listening on \(selectedHotkey.rawValue) hold · model: \(chosenModel.id) · ^C to quit\n".utf8
         ))
         app.run()
+    }
+}
+
+/// Mutable seat for the live transcriber, so the model can be swapped from the
+/// menu bar without restarting the daemon. Main-thread only: both the menu
+/// callbacks and the hotkey events are delivered on the main queue.
+@MainActor
+final class TranscriberHolder {
+    var transcriber: any Transcriber
+
+    init(_ transcriber: any Transcriber) {
+        self.transcriber = transcriber
+    }
+}
+
+/// Warms the new model up in the background — it may have to download hundreds
+/// of megabytes — and only then takes it into use. Dictation keeps working with
+/// the previous model in the meantime, and a failure leaves it untouched.
+@MainActor
+private func switchModel(
+    to newModel: TranscriptionModel,
+    holder: TranscriberHolder,
+    menuBar: MenuBarController
+) {
+    let candidate = TranscriberFactory.make(for: newModel)
+    Task {
+        do {
+            try await candidate.warmUp()
+            holder.transcriber = candidate
+            ModelPreferences.selected = newModel
+            menuBar.modelSwitchSucceeded(newModel)
+            FileHandle.standardError.write(Data("model: \(newModel.id)\n".utf8))
+        } catch {
+            FileHandle.standardError.write(
+                Data("switching to \(newModel.id) failed: \(error)\n".utf8)
+            )
+            menuBar.modelSwitchFailed()
+        }
     }
 }
 

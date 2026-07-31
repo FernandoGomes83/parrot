@@ -94,6 +94,14 @@ You can also change the push-to-talk key while Parrot is running: click its
 menu-bar icon, open **Push-to-talk key**, and choose a modifier. The selection
 is applied immediately and remembered for future launches.
 
+The same menu has a **Model** submenu. Picking a model loads it in the
+background (downloading it first if needed) — dictation keeps using the current
+model until the new one is ready, and the choice is remembered for future
+launches. Note that a LaunchAgent installed with `--select-model` pins `--model`
+in its plist, and that flag wins over the menu choice the next time the daemon
+restarts; install with plain `parrot install --launch-at-login` if you want the
+menu to govern the model.
+
 ## Privacy
 
 Transcripts are never written to disk. The daemon logs timing and length only
