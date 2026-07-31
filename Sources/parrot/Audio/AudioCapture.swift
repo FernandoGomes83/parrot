@@ -12,7 +12,7 @@ final class AudioCapture {
 
     static let targetSampleRate: Double = 16_000
 
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private var converter: AVAudioConverter?
     private var samples: [Float] = []
     private var isRecording = false
@@ -25,6 +25,11 @@ final class AudioCapture {
     /// Begin recording. Idempotent — calling while already recording is a no-op.
     func start() throws {
         guard !isRecording else { return }
+
+        // A reused engine keeps the input format it had at construction, so once
+        // the default device changes installTap throws a format mismatch and
+        // kills the process. A fresh engine always sees current hardware.
+        engine = AVAudioEngine()
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
