@@ -103,12 +103,12 @@ struct Install: ParsableCommand {
             "StandardOutPath": logPath,
             "StandardErrorPath": logPath,
         ]
-        if keepLog {
-            // launchd recreates a missing std-path file under its own umask
-            // (0644), so the 0600 degrades the first time the log is deleted.
-            // plists can't encode octal: 127 is 0o177.
-            plist["Umask"] = 127
-        }
+        // Deliberately no Umask key: it would apply to everything the daemon
+        // creates, including model-cache directories, which then lose their
+        // execute bit and break downloads with EACCES. prepareLogFile creates
+        // the log 0600 and every install rewrite re-tightens it; the one gap —
+        // launchd recreating a deleted log at 0644 — is acceptable because the
+        // log never holds transcript text.
 
         let url = plistURL
         try FileManager.default.createDirectory(
