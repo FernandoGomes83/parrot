@@ -35,16 +35,21 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             keyEquivalent: ""
         )
         stateLabel.isEnabled = false
-        menu.addItem(stateLabel)
 
         modelLabel = NSMenuItem(title: "model: \(modelID)", action: nil, keyEquivalent: "")
         modelLabel.isEnabled = false
-        menu.addItem(modelLabel)
 
         inputItem = NSMenuItem(title: "Input", action: nil, keyEquivalent: "")
         let inputMenu = NSMenu()
         inputMenu.autoenablesItems = false
         inputItem.submenu = inputMenu
+
+        // All stored properties are set; NSObject init must precede the menu
+        // items below, which take self as their target.
+        super.init()
+
+        menu.addItem(stateLabel)
+        menu.addItem(modelLabel)
         menu.addItem(inputItem)
 
         menu.addItem(.separator())
@@ -72,8 +77,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             action: #selector(quitClicked),
             keyEquivalent: "q"
         )
-        super.init()
-
         quit.target = self
         menu.addItem(quit)
 
