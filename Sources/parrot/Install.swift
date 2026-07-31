@@ -94,7 +94,7 @@ struct Install: ParsableCommand {
 
         // ProgramArguments deliberately omits --echo-transcripts: a background
         // daemon must never be configured to write transcript text to a log.
-        var plist: [String: Any] = [
+        let plist: [String: Any] = [
             "Label": Self.label,
             "ProgramArguments": programArguments,
             "RunAtLoad": true,
