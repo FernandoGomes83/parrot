@@ -93,6 +93,7 @@ struct Run: ParsableCommand {
         app.setActivationPolicy(.accessory)
 
         let monitor = HotkeyMonitor(hotkey: selectedHotkey, debug: debugHotkey)
+        let devices = InputDeviceStore()
         let capture = AudioCapture()
         let dumpWav = self.dumpWav
         let overlay: RecordingOverlay? = noOverlay ? nil : MainActor.assumeIsolated { RecordingOverlay() }
@@ -100,7 +101,7 @@ struct Run: ParsableCommand {
             capture.onLevel = { level in overlay.pushLevel(level) }
         }
         let menuBar = MainActor.assumeIsolated {
-            MenuBarController(modelID: chosenModel.id, hotkey: selectedHotkey) {
+            MenuBarController(modelID: chosenModel.id, hotkey: selectedHotkey, devices: devices) {
                 monitor.setHotkey($0)
             }
         }
@@ -110,7 +111,7 @@ struct Run: ParsableCommand {
                 switch event {
                 case .pressed:
                     do {
-                        try capture.start()
+                        try capture.start(device: devices.resolved()?.id)
                         FileHandle.standardError.write(Data("● recording\n".utf8))
                         MainActor.assumeIsolated {
                             overlay?.show(.recording)

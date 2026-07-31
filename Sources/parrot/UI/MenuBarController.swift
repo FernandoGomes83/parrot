@@ -4,21 +4,25 @@ import AppKit
 /// a glance and provides the only persistent control surface for the daemon
 /// (since we run as `.accessory` — no dock icon, no main window).
 @MainActor
-final class MenuBarController {
+final class MenuBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let modelLabel: NSMenuItem
     private let stateLabel: NSMenuItem
+    private let inputItem: NSMenuItem
     private let modelID: String
     private var hotkey: HotkeyMonitor.Hotkey
+    private let devices: InputDeviceStore
     private let onHotkeyChanged: (HotkeyMonitor.Hotkey) -> Void
 
     init(
         modelID: String,
         hotkey: HotkeyMonitor.Hotkey,
+        devices: InputDeviceStore,
         onHotkeyChanged: @escaping (HotkeyMonitor.Hotkey) -> Void
     ) {
         self.modelID = modelID
         self.hotkey = hotkey
+        self.devices = devices
         self.onHotkeyChanged = onHotkeyChanged
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -36,6 +40,12 @@ final class MenuBarController {
         modelLabel = NSMenuItem(title: "model: \(modelID)", action: nil, keyEquivalent: "")
         modelLabel.isEnabled = false
         menu.addItem(modelLabel)
+
+        inputItem = NSMenuItem(title: "Input", action: nil, keyEquivalent: "")
+        let inputMenu = NSMenu()
+        inputMenu.autoenablesItems = false
+        inputItem.submenu = inputMenu
+        menu.addItem(inputItem)
 
         menu.addItem(.separator())
 
@@ -62,11 +72,43 @@ final class MenuBarController {
             action: #selector(quitClicked),
             keyEquivalent: "q"
         )
+        super.init()
+
         quit.target = self
         menu.addItem(quit)
 
+        // Rebuild the device list on open so plugging a mic in is reflected
+        // without watching CoreAudio for device changes.
+        menu.delegate = self
+
         statusItem.menu = menu
         configureButton(recording: false)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard let submenu = inputItem.submenu else { return }
+        submenu.removeAllItems()
+
+        let selected = devices.selectedUID
+        submenu.addItem(inputChoice(title: "Same as System", uid: nil, checked: selected == nil))
+        submenu.addItem(.separator())
+        for device in devices.available() {
+            submenu.addItem(inputChoice(title: device.name, uid: device.uid, checked: device.uid == selected))
+        }
+    }
+
+    private func inputChoice(title: String, uid: String?, checked: Bool) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(inputSelected), keyEquivalent: "")
+        item.target = self
+        item.representedObject = uid
+        item.state = checked ? .on : .off
+        return item
+    }
+
+    /// Only writes the preference — the next recording resolves it, so there is
+    /// nothing to notify.
+    @objc private func inputSelected(_ sender: NSMenuItem) {
+        devices.selectedUID = sender.representedObject as? String
     }
 
     func setRecording(_ recording: Bool) {
