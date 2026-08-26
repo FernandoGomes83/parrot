@@ -1,13 +1,15 @@
 #!/bin/sh
 # parrot installer.
-#   curl -fsSL https://digimata.github.io/parrot/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | sh
 #
 # Fetches the latest arm64 macOS binary from GitHub Releases, checks it against
 # the published SHA-256, and drops it in /usr/local/bin.
 #
-# Pin a specific release with PARROT_VERSION (piping to sh leaves no way to pass
-# arguments, so an env var is the only mechanism):
-#   PARROT_VERSION=v0.0.5 curl -fsSL https://digimata.github.io/parrot/install.sh | sh
+# Piping to sh leaves no way to pass arguments, so env vars are the only
+# mechanism. Pin a specific release with PARROT_VERSION, or install from a
+# different fork with PARROT_REPOSITORY:
+#   PARROT_VERSION=v0.1.0 curl -fsSL ... | sh
+#   PARROT_REPOSITORY=digimata/parrot curl -fsSL ... | sh
 #
 # Apple Silicon only — WhisperKit uses the Apple Neural Engine via CoreML,
 # which only ships on M-series chips.
@@ -17,7 +19,7 @@
 
 set -eu
 
-REPO="digimata/parrot"
+REPO="${PARROT_REPOSITORY:-FernandoGomes83/parrot}"
 BIN_NAME="parrot"
 INSTALL_DIR="/usr/local/bin"
 ASSET="parrot-macos-arm64.tar.gz"

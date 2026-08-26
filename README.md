@@ -5,7 +5,7 @@ A minimal macOS dictation daemon. Push-to-talk, on-device transcription, text in
 ## Install
 
 ```sh
-curl -fsSL https://digimata.github.io/parrot/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | sh
 parrot setup                       # grants mic + accessibility, downloads the model
 parrot install --launch-at-login   # optional — runs in the background on login
 parrot install --select-model      # optional — choose the launch-at-login model
@@ -18,10 +18,12 @@ The installer drops the binary in `/usr/local/bin/parrot`. It downloads the publ
 install if the checksum is missing or doesn't match. It also checks the archive contains
 exactly one member (`parrot`) and no absolute or `..` paths.
 
-Pin a version — piping to `sh` leaves no way to pass arguments, so use the environment:
+Pin a version, or install from a different fork — piping to `sh` leaves no way
+to pass arguments, so use the environment:
 
 ```sh
-PARROT_VERSION=v0.0.5 curl -fsSL https://digimata.github.io/parrot/install.sh | sh
+PARROT_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | sh
+PARROT_REPOSITORY=digimata/parrot curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | sh
 ```
 
 **Builds are unsigned and un-notarized.** The installer removes the quarantine attribute
@@ -32,14 +34,14 @@ and the script says so. It matters only if you downloaded the tarball in a brows
 ### Verifying a release by hand
 
 ```sh
-TAG=v0.0.5
-curl -fsSLO https://github.com/digimata/parrot/releases/download/$TAG/parrot-macos-arm64.tar.gz
-curl -fsSLO https://github.com/digimata/parrot/releases/download/$TAG/parrot-macos-arm64.tar.gz.sha256
+TAG=v0.1.0
+curl -fsSLO https://github.com/FernandoGomes83/parrot/releases/download/$TAG/parrot-macos-arm64.tar.gz
+curl -fsSLO https://github.com/FernandoGomes83/parrot/releases/download/$TAG/parrot-macos-arm64.tar.gz.sha256
 shasum -a 256 -c parrot-macos-arm64.tar.gz.sha256
 
 # releases built after provenance was enabled can also be checked against GitHub's
 # signed attestation (requires the gh CLI, logged in):
-gh attestation verify parrot-macos-arm64.tar.gz --repo digimata/parrot
+gh attestation verify parrot-macos-arm64.tar.gz --repo FernandoGomes83/parrot
 ```
 
 A checksum published in the same release as the artifact only proves the download wasn't
