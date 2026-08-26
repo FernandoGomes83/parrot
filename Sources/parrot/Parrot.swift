@@ -70,7 +70,9 @@ struct Run: ParsableCommand {
             guard let m = ModelRegistry.find(id) else {
                 FileHandle.standardError.write(Data("unknown model: \(id)\n".utf8))
                 FileHandle.standardError.write(Data("run `parrot models list` to see options.\n".utf8))
-                throw ExitCode(1)
+                // Exit 0 for the same reason as a missing permission: a bad model id
+                // is not transient, and KeepAlive would relaunch us forever.
+                throw ExitCode(0)
             }
             chosenModel = m
             ModelPreferences.selected = m
@@ -306,9 +308,13 @@ struct Models: ParsableCommand {
 
     struct List: ParsableCommand {
         func run() throws {
+            // Column width follows the longest id: `padding(toLength:)` truncates
+            // when the string is longer, and a truncated id cannot be copied into
+            // `parrot models download`.
+            let width = ModelRegistry.shared.map(\.id.count).max() ?? 26
             for m in ModelRegistry.shared {
                 let star = m.recommended ? "★" : " "
-                let id = m.id.padding(toLength: 26, withPad: " ", startingAt: 0)
+                let id = m.id.padding(toLength: width, withPad: " ", startingAt: 0)
                 let langs = "[\(m.languages.joined(separator: ","))]"
                     .padding(toLength: 9, withPad: " ", startingAt: 0)
                 let size = String(format: "%5d MB", m.sizeMB)
