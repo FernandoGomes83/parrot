@@ -36,6 +36,23 @@ if one is present, but `curl` does not set it — quarantine is applied by apps 
 `LSFileQuarantineEnabled`, like browsers — so in the piped path there is nothing to remove
 and the script says so. It matters only if you downloaded the tarball in a browser.
 
+Two first-run consequences of that, until releases are signed with a stable
+Developer ID (planned):
+
+- **Updating re-breaks the Accessibility grant.** macOS ties the grant to the
+  code signature, and every release build carries a fresh ad-hoc one, so after
+  installing a new version the LaunchAgent logs `accessibility not granted`
+  even though System Settings shows parrot enabled. Fix: System Settings →
+  Privacy & Security → Accessibility → toggle **parrot** off and on (or remove
+  it and re-add `/usr/local/bin/parrot`), then restart the daemon. Running
+  `parrot doctor` from a terminal can't detect this — inside a terminal the
+  process inherits the *terminal's* grant.
+- **The first launch looks stuck for a few minutes.** The CoreML/ANE model
+  cache is also keyed by signature, so a new binary recompiles the model for
+  the Neural Engine before anything appears — no menu bar icon, no hotkey,
+  near-zero CPU in `parrot` while `ANECompilerService` works. It finishes on
+  its own (the log shows `✓ <model> ready`) and later launches are instant.
+
 ### Verifying a release by hand
 
 ```sh
