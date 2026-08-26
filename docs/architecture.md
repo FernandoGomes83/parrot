@@ -1,273 +1,243 @@
 # Architecture
 
+This describes the system as it is. The original pre-implementation design doc
+lives in git history; the notable places where reality diverged from it are
+collected at the end.
+
 ## Goals
 
-1. **CLI executable.** Single binary, launched from the terminal. No menubar, no dock icon, no settings window.
-2. **Push-to-talk.** Hold Fn, speak, release — transcript appears at the cursor.
-3. **Minimal recording feedback.** A small floating pill at the bottom of the screen while recording, so the user knows the mic is hot. Click-through, borderless, hidden when idle.
-4. **On-device.** No network calls for transcription. Audio never leaves the machine.
-5. **Pluggable models.** Whisper out of the box; Parakeet (or future engines) via a JSON-driven registry.
-6. **Native and lean.** One Swift Package executable target. No sidecar processes. No HTTP servers.
+1. **Single binary.** One SPM executable target, launched from a terminal or as
+   a LaunchAgent. No `.app` bundle, no dock icon, no settings window.
+2. **Push-to-talk.** Hold a modifier key (`fn` by default, configurable), speak,
+   release — the transcript is pasted at the cursor.
+3. **Minimal UI.** A menu bar status item (model, input device, push-to-talk
+   key, quit) and a click-through recording pill at the bottom of the screen.
+   Nothing else.
+4. **On-device.** No network calls for transcription. Audio never leaves the
+   machine. Transcripts are never written to disk.
+5. **Pluggable engines.** A `Transcriber` protocol with WhisperKit and
+   FluidAudio (Parakeet) implementations; a hardcoded registry is the single
+   source of truth for models.
 
 ## Non-goals
 
-- Cross-platform (macOS only)
-- Menubar, dock icon, settings window, preferences UI
+- Cross-platform (macOS only, Apple Silicon only — inference runs on the ANE)
 - Cloud transcription providers
 - AI post-processing, summarization, agents
 - Speaker diarization, meeting recording, semantic search
-- Auto-launch at login (user wires this themselves with `launchd` if desired)
+- Streaming partial transcripts, VAD-based hands-free mode
+- History, transcript log, custom vocabulary
 
 ## Why Swift
 
-- **CoreML / ANE access.** WhisperKit and FluidAudio are Swift-native and run inference on the Apple Neural Engine — lower power, lower latency than CPU/GPU paths in Rust.
-- **No FFI for platform APIs.** `AVAudioEngine`, `CGEventTap`, `CGEvent`, `AXIsProcessTrusted`, `NSWindow` — all first-party, no bindings to maintain.
-- **Permissions plumbing** (microphone, accessibility) is dramatically smoother in a Swift binary than via Rust crates.
-- **AppKit overlay for free.** The recording indicator (see below) is a borderless `NSWindow` — trivial in Swift, awkward in Rust.
-
-The binary is a Swift Package executable — `swift build`, `swift run`, ship a single binary. Even with the overlay window, there is no `.app` bundle, no menubar entry, no dock icon.
+- **CoreML / ANE access.** WhisperKit and FluidAudio are Swift-native and run
+  inference on the Apple Neural Engine — lower power, lower latency than
+  CPU/GPU paths in Rust.
+- **No FFI for platform APIs.** `AVAudioEngine`, `CGEventTap`, `CGEvent`,
+  `AXIsProcessTrusted`, `NSWindow`, `NSStatusItem` — all first-party.
+- **Permissions plumbing** (microphone, accessibility) is dramatically smoother
+  in a Swift binary than via Rust crates.
 
 ## High-level shape
 
 ```
 $ parrot
-                                    ┌──────────────────┐
-                                    │   ParrotCLI      │
-                                    │   (main.swift)   │
-                                    └────────┬─────────┘
-                                             │ wires modules, runs RunLoop
-                                             ▼
-┌──────────────────┐  hotkey down   ┌──────────────────┐
-│   HotkeyMonitor  │ ─────────────▶ │  AudioCapture    │
-│  (CGEventTap)    │  hotkey up     │ (AVAudioEngine)  │
-└──────────────────┘ ◀───────────── └────────┬─────────┘
-                                             │ [Float] PCM
-                                             ▼
-                                    ┌──────────────────┐
-                                    │   Transcriber    │
-                                    │   (protocol)     │
-                                    │  ┌────────────┐  │
-                                    │  │ WhisperKit │  │
-                                    │  └────────────┘  │
-                                    │  ┌────────────┐  │
-                                    │  │  Parakeet  │  │
-                                    │  └────────────┘  │
-                                    └────────┬─────────┘
-                                             │ String
-                                             ▼
-                                    ┌──────────────────┐
-                                    │  TextInjector    │
-                                    │   (CGEvent)      │
-                                    └──────────────────┘
+                  ┌───────────────────┐
+                  │    Parrot.swift   │  argument parsing, wiring,
+                  │  (ParsableCommand)│  NSApp.run() as .accessory
+                  └─────────┬─────────┘
+                            ▼
+┌──────────────────┐  hold  ┌──────────────────┐      ┌────────────────────┐
+│  HotkeyMonitor   │ ─────▶ │   AudioCapture   │      │  MenuBarController │
+│  (CGEventTap)    │ release│  (AVAudioEngine, │      │  (NSStatusItem)    │
+└──────────────────┘ ◀───── │  fresh per rec.) │      ├────────────────────┤
+                            └────────┬─────────┘      │  RecordingOverlay  │
+                                     │ [Float] PCM    │  (SwiftUI pill)    │
+                                     ▼                └────────────────────┘
+                            ┌──────────────────┐
+                            │   Transcriber    │  WhisperKitTranscriber
+                            │   (protocol)     │  ParakeetTranscriber
+                            └────────┬─────────┘
+                                     │ String
+                                     ▼
+                            ┌──────────────────┐
+                            │   TextInjector   │  paste (default) or
+                            │   (CGEvent)      │  type-unicode fallback
+                            └──────────────────┘
 ```
 
 ## Modules
 
-### `main.swift` (ParrotCLI)
+### `Parrot.swift`
 
-Argument parsing (via `swift-argument-parser`), config loading, module wiring. Calls `NSApplication.shared.setActivationPolicy(.accessory)` so the process has no dock icon and no menu bar entry, then runs `NSApp.run()` to keep the process alive and drive the AppKit run loop (needed for `NSWindow`, `CGEventTap`, and AVFoundation). Exits cleanly on SIGINT. Logs status to stderr so a user running it in a terminal can see what's happening.
+Argument parsing via `swift-argument-parser`. Subcommands:
 
-Subcommands:
-- `parrot` (default) — run the daemon
-- `parrot models list` — show registered models, mark which are downloaded
-- `parrot models download <id>` — pre-fetch a model
-- `parrot doctor` — check microphone and accessibility permissions, print remediation steps
+- `run` (default) — the daemon: permission checks (skippable with
+  `--skip-doctor`), model load, then `NSApplication` with `.accessory`
+  activation policy and `NSApp.run()` (needed for the status item, the overlay
+  window, the event tap, and AVFoundation).
+- `setup` — walk through first-run permissions + model download.
+- `doctor` — check microphone, accessibility, fn-key mapping, and leftover
+  legacy logs, with remediation steps.
+- `models list` / `models download <id>`.
+- `install` — manage the launch-at-login LaunchAgent (see below).
 
-### `HotkeyMonitor`
+**Exit-code convention:** conditions that are not transient — missing
+Accessibility permission, unknown model id — exit `0`, not `1`. The
+LaunchAgent's `KeepAlive` is `{SuccessfulExit: false}`, so a non-zero exit
+would relaunch a hopeless process forever.
 
-Global hotkey via `CGEventTap` (requires Accessibility permission). Default: **hold Fn**. Detected via `flagsChanged` events with `NSEvent.ModifierFlags.function` / `kCGEventFlagMaskSecondaryFn`. Emits `.pressed` / `.released`. Configurable via `--hotkey` flag or config file.
+### `Input/`
 
-**Fn key caveat:** macOS by default maps the Fn (🌐) key to "Show Emoji & Symbols" or "Start Dictation" depending on the user's setting in System Settings → Keyboard → Press 🌐 key to. The CGEventTap sees the keypress regardless, but the system action also fires. `parrot doctor` will detect this setting and instruct the user to change it to "Do Nothing" so Fn becomes a clean modifier.
+`HotkeyMonitor` — global hotkey via a listen-only `CGEventTap` at
+`.cgSessionEventTap` (requires Accessibility). The mask is deliberately
+narrowed to `flagsChanged` — keystroke contents never reach the process
+(`--debug-hotkey` widens it). If macOS disables the tap (timeout or user
+input), the callback re-enables it from the main run loop instead of dying
+silently. The key is a modifier (`fn`, left/right option, right command, …),
+chosen via `--hotkey` or the menu bar; `HotkeyPreferences` persists it in
+`UserDefaults`.
 
-### `AudioCapture`
+`TextInjector` — two modes. **`paste` (default):** snapshot the pasteboard,
+put the transcript on it, synthesize ⌘V (posted to
+`.cgAnnotatedSessionEventTap`), restore the snapshot after a grace period.
+Works everywhere, including terminals and Electron apps, which discard
+synthesized unicode events. **`type-unicode`:** posts the characters directly
+in ~20-char chunks — never touches the pasteboard, but silently drops text in
+those apps. Synthetic events must be posted to `.cgAnnotatedSessionEventTap`:
+posting at `.cgSessionEventTap` gets them swallowed by our own listen-only tap.
 
-`AVAudioEngine` tap on the input node. Streams 16 kHz mono `Float32` buffers into a ring buffer while the hotkey is held. On release, hands the full buffer to the active `Transcriber`.
+### `Audio/`
 
-### `Transcriber` (protocol)
+`AudioCapture` — an `AVAudioEngine` input tap streaming 16 kHz mono `Float32`.
+The engine is **built fresh for every recording** (stale engines survive device
+changes and capture silence). `start(device:)` takes an optional
+`AudioDeviceID`; `InputDeviceStore` persists the chosen input's UID in
+`UserDefaults`, and the menu bar's **Input** submenu sets it — applied on the
+next recording.
+
+### `Transcription/`
 
 ```swift
 protocol Transcriber {
     func transcribe(_ audio: [Float]) async throws -> String
-    var modelID: String { get }
 }
 ```
 
-Concrete implementations:
+- `WhisperKitTranscriber` — WhisperKit (CoreML, ANE). Detects the spoken
+  language on multilingual models; `.en` models skip detection (they have no
+  language tokens). Models live under
+  `~/Library/Application Support/parrot/huggingface/` (earlier versions used
+  `~/Documents`, where iCloud could evict files and the LaunchAgent needed a
+  TCC grant to read them; a migration note is printed rather than silently
+  re-downloading gigabytes).
+- `ParakeetTranscriber` — FluidAudio running Parakeet TDT 0.6B v3, under
+  `~/Library/Application Support/parrot/fluidaudio/`.
 
-- `WhisperKitTranscriber` — wraps the `WhisperKit` package. CoreML, ANE-accelerated.
-- `ParakeetTranscriber` — wraps `FluidAudio` (or direct CoreML) for NVIDIA Parakeet TDT.
+Engines download their model on first load. Adding an engine = one new
+conformance + registry entries.
 
-Adding an engine = one new file conforming to `Transcriber`.
+### `Models/`
 
-### `TextInjector`
+`ModelRegistry` is a hardcoded array of `TranscriptionModel` values — the
+single source of truth for ids, sizes, languages, and the recommended flag.
+(The design called for a bundled `models.json`; a Swift literal turned out to
+be simpler and type-checked.) `ModelPreferences` persists the selected model in
+`UserDefaults`; a LaunchAgent installed with `--select-model` instead pins
+`--model` in its plist, which wins on the next daemon restart.
 
-`CGEventCreateKeyboardEvent` + `CGEventKeyboardSetUnicodeString` — pastes the transcript at the current cursor position. Works in nearly every text field on macOS (some Electron apps and secure fields are flaky; platform constraint).
+### `UI/`
 
-### `RecordingOverlay`
+`MenuBarController` — an `NSStatusItem` (feather icon, tinted while
+transcribing) with submenus: **Push-to-talk key**, **Input** (capture device),
+**Model** (switches live: the new model loads in the background while dictation
+keeps using the current one), and Quit.
 
-A single borderless `NSWindow` displayed at the bottom-center of the active screen while recording. Provides visual feedback that the mic is hot — the only piece of UI in the app.
+`RecordingOverlay` — a borderless, click-through `NSWindow`
+(`level: .statusBar`, joins all Spaces) hosting a SwiftUI pill at
+bottom-center: hidden → recording → transcribing → hidden.
 
-Window configuration:
-- `styleMask: .borderless`
-- `backgroundColor: .clear`, `isOpaque: false`, `hasShadow: true`
-- `level: .statusBar` (or `.floating`) — sits above all other windows
-- `ignoresMouseEvents = true` — clicks pass through to whatever is underneath
-- `collectionBehavior: [.canJoinAllSpaces, .stationary, .ignoresCycle]` — visible across Spaces, doesn't appear in window switcher
+### `Install.swift`
 
-Content: a small SwiftUI view hosted via `NSHostingView`, showing a pulsing dot + "listening" text, optionally a live mic level meter fed from `AudioCapture`. Total footprint: ~120pt wide, ~40pt tall, positioned 60pt above the bottom of the screen.
-
-States:
-- **Hidden** — idle. No window on screen.
-- **Recording** — shown on `.pressed`, mic level animated.
-- **Transcribing** — brief spinner state between hotkey release and text injection (usually <500 ms).
-- **Hidden** — back to idle after injection.
-
-This is the only reason the process needs an `NSApplication` run loop instead of a bare `CFRunLoop`.
-
-### `ModelRegistry`
-
-JSON-driven, mirrors OpenWhispr's pattern:
-
-```swift
-struct TranscriptionModel: Codable {
-    let id: String              // "whisper-large-v3-turbo"
-    let displayName: String
-    let engine: Engine          // .whisperKit | .parakeet
-    let sizeMB: Int
-    let downloadURL: URL
-    let languages: [String]
-    let recommended: Bool
-}
-
-enum Engine: String, Codable { case whisperKit, parakeet }
-```
-
-Backed by a bundled `models.json` resource. Adding a model = appending an entry. Adding an engine = one new `Transcriber` conformance + one entry in the `Engine` enum.
-
-The registry is the single source of truth for: download URLs, file names, sizes, recommended flags, what shows up in `parrot models list`.
-
-### `ModelDownloader`
-
-On first selection (or via `parrot models download <id>`), downloads to `~/Library/Application Support/parrot/models/<engine>/<id>/`. Progress bar to stderr (using `\r` overwrites). Resumable, validates size. Refuses to start the daemon if the selected model isn't present.
-
-### `Config`
-
-Plain `Codable` struct. Loaded from (in order): CLI flags > `~/.config/parrot/config.toml` > defaults.
-
-```toml
-model = "whisper-large-v3-turbo"
-hotkey = "fn"
-inject_mode = "paste"   # or "type-unicode"
-overlay = true          # show recording pill at bottom of screen
-```
-
-CLI flags override the file. No settings UI; you edit the TOML.
+Writes `~/Library/LaunchAgents/com.digimata.parrot.plist` (label
+`com.digimata.parrot`, `KeepAlive: {SuccessfulExit: false}`), pointing at the
+installed binary with `run --skip-doctor`. `--log-file` sends output to
+`~/Library/Logs/parrot.log` (`0600`); the default discards it. The log
+destination is preserved across plist rewrites. Also: `--uninstall`,
+`--select-model`, `--purge-legacy-logs`.
 
 ## Permissions
 
-Two prompts on first run, both surfaced via `parrot doctor`:
+1. **Microphone** — standard `AVCaptureDevice` prompt on first engine start.
+2. **Accessibility** — required for the event tap and for posting events.
 
-1. **Microphone** — standard `AVCaptureDevice` request, fires on first audio engine start.
-2. **Accessibility** — required for `CGEventTap` (hotkey) and `CGEvent` posting (text injection). User toggles in System Settings → Privacy & Security → Accessibility, granting the *terminal* (or whatever launched parrot) permission, since the binary inherits its parent's TCC identity.
+The TCC quirk that matters: **the grant attaches to the responsible process
+and the code signature.**
 
-`parrot doctor` checks both and prints actionable next steps if either is missing. Without these, the daemon refuses to start.
-
-### TCC quirk worth knowing
-
-When you launch `parrot` from `Terminal.app`, accessibility permission is granted to *Terminal*, not parrot itself. This means:
-- Switching terminals (Terminal → iTerm → Ghostty) requires re-granting permission.
-- Running under `launchd` requires granting permission to whatever spawns it.
-
-This is a macOS platform behavior, not a parrot bug. `parrot doctor` will identify the parent process and tell the user which app needs the permission.
+- Launched from a terminal, the process inherits the *terminal's* grant —
+  which is why `parrot doctor` in a terminal can say "ok" while the
+  LaunchAgent, running the same binary standalone, is denied.
+- The LaunchAgent needs a grant for the binary itself, and macOS keys it to
+  the code signature. Ad-hoc-signed release builds get a fresh signature every
+  build, so **updating breaks the grant** until the user toggles parrot off/on
+  in System Settings → Accessibility. `scripts/dev-install.sh` signs local
+  builds with a self-signed `parrot-dev` identity so repeated dev installs
+  keep the grant; signing releases with a stable Developer ID (planned) fixes
+  it for everyone.
+- The CoreML/ANE compile cache is also keyed by signature: the first launch of
+  a newly-signed binary recompiles the model (minutes of `ANECompilerService`
+  CPU, near-zero CPU in parrot, no UI yet — it looks stuck and isn't).
 
 ## Models — what ships
 
-Initial registry:
-
 | Engine | Model | Size | Notes |
 |---|---|---|---|
-| WhisperKit | `whisper-base.en` | ~80 MB | Fast, English only, low resource |
-| WhisperKit | `whisper-large-v3-turbo` | ~800 MB | Recommended for daily use |
-| Parakeet | `parakeet-tdt-0.6b-v3` | ~600 MB | English, fastest on ANE |
-
-Models live in `~/Library/Application Support/parrot/models/`. Not bundled — fetched on first selection or via `parrot models download`.
+| FluidAudio | `parakeet-tdt-0.6b-v3` | 483 MB | ★ recommended — multilingual (25 langs, incl. pt), fastest on ANE |
+| WhisperKit | `whisper-base.en` | 145 MB | English only, low resource |
+| WhisperKit | `whisper-small.en` | 488 MB | English only |
+| WhisperKit | `whisper-large-v3-turbo` | 1620 MB | Multilingual, slower first run |
 
 ## Data flow, end-to-end
 
-1. User runs `parrot` in a terminal.
-2. `ParrotCLI` validates permissions (`parrot doctor` logic), loads config, instantiates modules.
-3. Sets `.accessory` activation policy and enters `NSApp.run()`. Status: `listening`. Overlay hidden.
-4. User holds Fn.
-5. `HotkeyMonitor` fires `.pressed`. `RecordingOverlay` shows. Status: `recording`.
-6. `AudioCapture` starts the AVAudioEngine tap. Buffers fill. Overlay animates mic level.
-7. User releases Fn.
-8. `HotkeyMonitor` fires `.released`. Overlay switches to spinner. Status: `transcribing`.
-9. `AudioCapture` stops, hands buffer to active `Transcriber`.
-10. `Transcriber` runs CoreML inference. Returns string.
-11. `TextInjector` posts the string at the cursor.
-12. Overlay hides. Status: `listening`. Loop.
-13. User hits `^C`. Process exits cleanly.
+1. `parrot run` — permissions checked, model loaded (downloaded first if
+   needed), status item appears, tap armed.
+2. User holds the push-to-talk key → overlay shows, a fresh `AVAudioEngine`
+   starts on the chosen input device.
+3. User releases → overlay switches to transcribing, the buffer goes to the
+   active `Transcriber`, CoreML inference runs on the ANE.
+4. `TextInjector` pastes the transcript at the cursor and restores the
+   pasteboard. Overlay hides. Loop.
 
-End-to-end latency target: <500 ms after hotkey release for utterances under 10 seconds, on Apple Silicon.
+Latency target: <500 ms after release for utterances under 10 seconds. The
+daemon logs timing and length only (`→ 0.42s · 63 chars`) — never the text.
 
-## What we are deliberately NOT building
+## Distribution
 
-- No streaming partial transcripts in v1. Press, speak, release, get full text.
-- No VAD-based hands-free mode. Push-to-talk is more reliable and uses zero idle CPU.
-- No history, transcript log, or clipboard manager. Output goes to the cursor and that's it.
-- No custom vocabulary, prompts, or post-processing.
-- No menubar, no settings window, no preferences panel. The only UI is the recording overlay. Configuration is flags + TOML.
+Tag `v*` → GitHub Actions (`release.yml`) builds arm64 on macOS, strips,
+packages `parrot-macos-arm64.tar.gz` + `.sha256`, signs a build-provenance
+attestation via OIDC, and publishes the release. `scripts/install.sh`
+(`curl | sh`) resolves the latest release, verifies the checksum fail-closed,
+checks the attestation (advisory — `PARROT_REQUIRE_ATTESTATION=1` makes it
+fatal), inspects the archive, and installs to `/usr/local/bin`.
+`PARROT_VERSION` pins a release; `PARROT_REPOSITORY` overrides the repo.
 
-These are deliberate cuts. Each can be revisited if real usage demands it.
+## Where reality diverged from the original design
 
-## Project layout (planned)
-
-Organized by feature area. These are folders within a single SPM executable target — Swift sees them as one module, but the directory grouping keeps related code together. If a group later earns its keep as a reusable library (e.g. `Transcription` consumed by another tool), it can be promoted to its own SPM target with no rewriting.
-
-```
-parrot/
-  Package.swift                 # SPM, single executable target
-  Sources/parrot/
-    main.swift                  # entry point, argument parsing, NSApp.run()
-    Config.swift
-    Doctor.swift
-
-    Transcription/              # the inference layer
-      Transcriber.swift         # protocol
-      WhisperKitTranscriber.swift
-      ParakeetTranscriber.swift
-
-    Models/                     # registry + download pipeline
-      ModelRegistry.swift
-      ModelDownloader.swift
-      TranscriptionModel.swift  # Codable types
-
-    Audio/
-      AudioCapture.swift        # AVAudioEngine tap + ring buffer
-
-    Input/
-      HotkeyMonitor.swift       # CGEventTap
-      TextInjector.swift        # CGEvent posting
-
-    UI/
-      RecordingOverlay.swift    # borderless NSWindow + SwiftUI pill
-
-  Resources/
-    models.json
-  docs/
-    architecture.md
-  README.md
-```
-
-Build: `swift build -c release`. Resulting binary at `.build/release/parrot`. Install: copy to `~/.local/bin/` or `/usr/local/bin/`.
-
-### On Swift "modules"
-
-Swift's module unit is the **SPM target** (one target = one module = one `import` namespace). For parrot v1 we use a single executable target with the folder structure above; everything is in the same module so no `import` statements between files. If we ever want enforced boundaries (e.g. `Transcription` and `UI` shouldn't reach into `Audio` internals), we promote folders to separate targets in `Package.swift` — a structural change, not a semantic one.
-
-## Open questions
-
-- **Parakeet via FluidAudio vs. direct CoreML?** FluidAudio is faster to integrate but adds a dependency. Decide once we benchmark both.
-- **Hotkey conflicts.** Right-Option is unused on most keyboards but some users remap it. Print a clear error if `CGEventTap` registration fails.
-- **First-run UX.** Bundle `whisper-base.en` so `parrot` works out of the box, or always require an explicit download? Probably the latter — keeps the binary small and the model directory clean.
-- **Code signing.** A self-built unsigned binary works fine locally but accessibility permission persistence is more reliable for signed binaries. Decide if we sign for personal distribution.
+- **A menu bar item exists** (it was an explicit non-goal): switching model,
+  input, and hotkey while running earned it. There is still no dock icon,
+  settings window, or `.app` bundle.
+- **Launch-at-login is built in** (`parrot install`) rather than left to the
+  user's own launchd wiring — the plist details (KeepAlive semantics, exit-0
+  convention, log handling, model pinning) were worth owning.
+- **Paste replaced synthetic typing as the default injection** — typing drops
+  text in terminals and Electron apps.
+- **Configuration is `UserDefaults`, not a TOML file.** Preferences changed
+  from the menu bar need to persist without a config-file writer; the planned
+  `~/.config/parrot/config.toml` never existed.
+- **The registry is a Swift literal, not `models.json`** — one fewer resource
+  to load and validate, and it's type-checked.
+- Resolved open questions: FluidAudio over direct CoreML for Parakeet; tap
+  registration failures print remediation and the tap re-enables itself after
+  system disables; models are downloaded on demand (nothing bundled); local
+  builds are signed with `parrot-dev`, releases with a Developer ID once
+  available.
