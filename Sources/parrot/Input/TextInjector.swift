@@ -127,12 +127,15 @@ enum TextInjector {
         let length = chunk.count
         guard length > 0 else { return }
 
+        // Post past HotkeyMonitor's own listen-only tap at .cgSessionEventTap —
+        // posting there gets the synthetic keystrokes silently swallowed before
+        // they reach the focused app. Only the key-down carries the string:
+        // setting it on the key-up too makes some apps insert the text twice.
         let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
         down?.keyboardSetUnicodeString(stringLength: length, unicodeString: &chunk)
-        down?.post(tap: .cgSessionEventTap)
+        down?.post(tap: .cgAnnotatedSessionEventTap)
 
         let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
-        up?.keyboardSetUnicodeString(stringLength: length, unicodeString: &chunk)
-        up?.post(tap: .cgSessionEventTap)
+        up?.post(tap: .cgAnnotatedSessionEventTap)
     }
 }
