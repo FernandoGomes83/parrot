@@ -78,12 +78,12 @@ failed provenance check as a warning rather than aborting. Set
 
 1. **Run it.** Either `parrot install --launch-at-login` (daemonized, runs forever, lives in the menu bar), or `parrot` in any terminal tab.
 2. **Click into the text field you want to dictate into** — Messages, the address bar, a Slack thread, anywhere a cursor blinks.
-3. **Hold the `fn` key, speak, release.** A small pill appears at the bottom of the screen while the mic is hot.
-4. **The transcript types itself in at the cursor** when you release. Usually within 200-300ms.
+3. **Hold the push-to-talk key (`fn` by default), speak, release.** A small pill appears at the bottom of the screen while the mic is hot. You can switch the key to another modifier with `--hotkey` or from the menu bar (see below).
+4. **The transcript is pasted in at the cursor** when you release. Usually within 200-300ms.
 
-That's it. There is no record button, no stop button, no "send" — `fn` is the whole interface.
+That's it. There is no record button, no stop button, no "send" — one held key is the whole interface.
 
-> **Note:** on most modern Macs the `fn` key is the bottom-left key. If yours is set to "Change input source" or "Show emoji & symbols," `parrot setup` will tell you how to flip it back to plain `fn`.
+> **Note:** on most modern Macs the `fn` key is the bottom-left key. If yours is set to "Change input source" or "Show emoji & symbols," `parrot setup` will tell you how to flip it back to plain `fn` — or just pick a different push-to-talk key.
 
 ## CLI
 
@@ -117,6 +117,9 @@ touches the pasteboard, at the cost of silently dropping text in those apps.
 You can also change the push-to-talk key while Parrot is running: click its
 menu-bar icon, open **Push-to-talk key**, and choose a modifier. The selection
 is applied immediately and remembered for future launches.
+
+An **Input** submenu picks the microphone to capture from, applied on the next
+recording.
 
 The same menu has a **Model** submenu. Picking a model loads it in the
 background (downloading it first if needed) — dictation keeps using the current

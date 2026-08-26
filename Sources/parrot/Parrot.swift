@@ -7,7 +7,7 @@ import WhisperKit
 struct Parrot: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "parrot",
-        abstract: "Minimal macOS dictation daemon. Hold Fn, speak, release.",
+        abstract: "Minimal macOS dictation daemon. Hold the push-to-talk key (Fn by default), speak, release.",
         subcommands: [Run.self, Setup.self, Doctor.self, Models.self, Install.self],
         defaultSubcommand: Run.self
     )
