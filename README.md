@@ -2,6 +2,11 @@
 
 A minimal macOS dictation daemon. Push-to-talk, on-device transcription, text inserted at the cursor.
 
+> A fork of [digimata/parrot](https://github.com/digimata/parrot) (MIT) that tracks
+> upstream and adds, among other things, a second transcription backend (Parakeet
+> TDT 0.6B v3, multilingual), live model switching from the menu bar, and verified
+> binary releases — see [CHANGELOG.md](CHANGELOG.md).
+
 ## Install
 
 ```sh
