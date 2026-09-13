@@ -27,8 +27,8 @@ Pin a version, or install from a different fork — piping to `sh` leaves no way
 to pass arguments, so use the environment:
 
 ```sh
-PARROT_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | sh
-PARROT_REPOSITORY=digimata/parrot curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | PARROT_VERSION=v0.2.0 sh
+curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | PARROT_REPOSITORY=digimata/parrot sh
 ```
 
 **Builds are unsigned and un-notarized.** The installer removes the quarantine attribute
@@ -56,7 +56,7 @@ Developer ID (planned):
 ### Verifying a release by hand
 
 ```sh
-TAG=v0.1.0
+TAG=v0.2.0
 curl -fsSLO https://github.com/FernandoGomes83/parrot/releases/download/$TAG/parrot-macos-arm64.tar.gz
 curl -fsSLO https://github.com/FernandoGomes83/parrot/releases/download/$TAG/parrot-macos-arm64.tar.gz.sha256
 shasum -a 256 -c parrot-macos-arm64.tar.gz.sha256
@@ -78,7 +78,7 @@ failed provenance check as a warning rather than aborting. Set
 
 1. **Run it.** Either `parrot install --launch-at-login` (daemonized, runs forever, lives in the menu bar), or `parrot` in any terminal tab.
 2. **Click into the text field you want to dictate into** — Messages, the address bar, a Slack thread, anywhere a cursor blinks.
-3. **Hold the push-to-talk key (`fn` by default), speak, release.** A small pill appears at the bottom of the screen while the mic is hot. You can switch the key to another modifier with `--hotkey` or from the menu bar (see below).
+3. **Hold the push-to-talk key (`fn` by default), speak, release.** A circular cyan reactor appears at the bottom of the screen, reacting to your voice; it turns amber while transcribing. You can switch the key to another modifier with `--hotkey` or from the menu bar (see below).
 4. **The transcript is pasted in at the cursor** when you release. Usually within 200-300ms.
 
 That's it. There is no record button, no stop button, no "send" — one held key is the whole interface.
@@ -101,7 +101,7 @@ parrot --model whisper-large-v3-turbo  # bigger, multilingual, slower first-run
 parrot --model parakeet-tdt-0.6b-v3    # multilingual (25 langs, incl. pt), fast
 parrot --hotkey right-option           # change the push-to-talk key
 parrot --inject-mode type-unicode      # type the text instead of pasting it
-parrot --no-overlay                    # disable the bottom-of-screen pill
+parrot --no-overlay                    # disable the bottom-of-screen reactor
 ```
 
 ### Injection modes
@@ -155,7 +155,7 @@ Either way the log holds no transcript text.
 - **AVAudioEngine** — mic capture
 - **CGEventTap** — global hotkey
 - **CGEvent** — text injection at cursor
-- **NSWindow** (borderless, click-through) — recording-indicator pill
+- **NSWindow** (borderless, click-through) — sound-reactive recording indicator
 
 See [docs/architecture.md](docs/architecture.md) for design notes.
 

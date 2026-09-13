@@ -11,7 +11,7 @@ collected at the end.
 2. **Push-to-talk.** Hold a modifier key (`fn` by default, configurable), speak,
    release — the transcript is pasted at the cursor.
 3. **Minimal UI.** A menu bar status item (model, input device, push-to-talk
-   key, quit) and a click-through recording pill at the bottom of the screen.
+   key, quit) and a click-through audio reactor at the bottom of the screen.
    Nothing else.
 4. **On-device.** No network calls for transcription. Audio never leaves the
    machine. Transcripts are never written to disk.
@@ -52,7 +52,7 @@ $ parrot
 │  (CGEventTap)    │ release│  (AVAudioEngine, │      │  (NSStatusItem)    │
 └──────────────────┘ ◀───── │  fresh per rec.) │      ├────────────────────┤
                             └────────┬─────────┘      │  RecordingOverlay  │
-                                     │ [Float] PCM    │  (SwiftUI pill)    │
+                                     │ [Float] PCM    │  (SwiftUI reactor) │
                                      ▼                └────────────────────┘
                             ┌──────────────────┐
                             │   Transcriber    │  WhisperKitTranscriber
@@ -154,8 +154,11 @@ transcribing) with submenus: **Push-to-talk key**, **Input** (capture device),
 keeps using the current one), and Quit.
 
 `RecordingOverlay` — a borderless, click-through `NSWindow`
-(`level: .statusBar`, joins all Spaces) hosting a SwiftUI pill at
-bottom-center: hidden → recording → transcribing → hidden.
+(`level: .statusBar`, joins all Spaces) hosting a 124 × 124 pt SwiftUI reactor at
+bottom-center: hidden → recording → transcribing → hidden. Smoothed microphone
+levels drive the cyan core and radial meter; counter-rotating rings turn amber
+and accelerate during transcription. A 30 fps timeline pauses while hidden or
+when Reduce Motion is enabled. Pending dismissals are cancelled on reappearance.
 
 ### `Install.swift`
 

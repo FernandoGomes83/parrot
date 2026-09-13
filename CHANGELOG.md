@@ -8,6 +8,21 @@ Releases up to and including v0.0.5 were published by the upstream project,
 [digimata/parrot](https://github.com/digimata/parrot/releases). This fork
 picks up from there.
 
+## [0.2.0] - 2026-09-13
+
+### Changed
+
+- Replace the recording pill with a circular audio reactor: a cyan core,
+  counter-rotating rings, and radial segments driven by microphone volume.
+- Show transcription with amber rings and a central processing indicator.
+- Smooth microphone levels and respect the macOS Reduce Motion preference.
+- Update installation examples so version and repository overrides reach the
+  installer process correctly.
+
+### Fixed
+
+- Cancel a pending overlay dismissal when another recording starts.
+
 ## [0.1.0] - 2026-08-26
 
 First release cut from this fork. Rolls up the fork's own work plus several
@@ -71,4 +86,5 @@ upstream pull requests merged or cherry-picked ahead of upstream.
 - Language detection is gated on multilingual models — English-only (`.en`)
   models have no language tokens to detect with.
 
+[0.2.0]: https://github.com/FernandoGomes83/parrot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/FernandoGomes83/parrot/compare/v0.0.5...v0.1.0
