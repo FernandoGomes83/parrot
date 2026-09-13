@@ -150,12 +150,15 @@ be simpler and type-checked.) `ModelPreferences` persists the selected model in
 
 `MenuBarController` — an `NSStatusItem` (feather icon, tinted while
 transcribing) with submenus: **Push-to-talk key**, **Input** (capture device),
+**Recording indicator** (Simple or Reactor, saved across launches),
 **Model** (switches live: the new model loads in the background while dictation
 keeps using the current one), and Quit.
 
 `RecordingOverlay` — a borderless, click-through `NSWindow`
-(`level: .statusBar`, joins all Spaces) hosting a 124 × 124 pt SwiftUI reactor at
-bottom-center: hidden → recording → transcribing → hidden. Smoothed microphone
+(`level: .statusBar`, joins all Spaces) hosting the selected SwiftUI indicator at
+bottom-center: hidden → recording → transcribing → hidden. Simple uses a
+96 × 44 pt pill; Reactor uses a 124 × 124 pt panel. Changing style resizes and
+repositions the panel without restarting. Smoothed microphone
 levels drive the cyan core and radial meter; counter-rotating rings turn amber
 and accelerate during transcription. A 30 fps timeline pauses while hidden or
 when Reduce Motion is enabled. Pending dismissals are cancelled on reappearance.

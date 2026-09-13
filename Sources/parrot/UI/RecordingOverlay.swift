@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Borderless, click-through audio reactor near the bottom of the active screen.
+/// Borderless, click-through recording indicator near the bottom of the active screen.
 /// Driven by the daemon's hotkey + transcription lifecycle.
 @MainActor
 final class RecordingOverlay {
@@ -37,6 +37,15 @@ final class RecordingOverlay {
         }
     }
 
+    func setStyle(_ style: OverlayStyle) {
+        model.style = style
+        guard let window else { return }
+        window.setContentSize(style.size)
+        if window.isVisible {
+            positionAtBottomCenter(window)
+        }
+    }
+
     func hide() {
         model.state = .hidden
         pendingHide?.cancel()
@@ -58,7 +67,7 @@ final class RecordingOverlay {
     private func ensureWindow() {
         if window != nil { return }
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 124, height: 124),
+            contentRect: NSRect(origin: .zero, size: model.style.size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -72,7 +81,7 @@ final class RecordingOverlay {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
 
-        let host = NSHostingView(rootView: RecordingReactor(model: model))
+        let host = NSHostingView(rootView: RecordingIndicator(model: model))
         host.frame = panel.contentView?.bounds ?? .zero
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
@@ -93,6 +102,7 @@ final class RecordingOverlay {
 /// A smoothed microphone envelope; silence falls back to a quiet core.
 @MainActor
 final class OverlayModel: ObservableObject {
+    @Published var style: OverlayStyle = OverlayPreferences.selected
     @Published var state: RecordingOverlay.State = .hidden
     @Published var level: CGFloat = 0
 
@@ -105,6 +115,57 @@ final class OverlayModel: ObservableObject {
 
     func resetLevels() {
         level = 0
+    }
+}
+
+struct RecordingIndicator: View {
+    @ObservedObject var model: OverlayModel
+
+    var body: some View {
+        switch model.style {
+        case .simple:
+            SimpleRecordingIndicator(model: model)
+        case .reactor:
+            RecordingReactor(model: model)
+        }
+    }
+}
+
+struct SimpleRecordingIndicator: View {
+    @ObservedObject var model: OverlayModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let envelope: [CGFloat] = [0.55, 0.85, 1, 1, 0.85, 0.55]
+
+    var body: some View {
+        ZStack {
+            if model.state == .transcribing {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.8)
+                    .colorScheme(.dark)
+            } else {
+                HStack(spacing: 4) {
+                    ForEach(envelope.indices, id: \.self) { index in
+                        Capsule()
+                            .fill(Color(red: 181/255, green: 209/255, blue: 1))
+                            .frame(width: 2.5, height: 22)
+                            .scaleEffect(y: reduceMotion ? 0.5 : max(0.1, model.level * envelope[index]))
+                    }
+                }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.09), value: model.level)
+            }
+        }
+        .frame(width: 54, height: 22)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(Capsule().fill(Color(red: 16/255, green: 18/255, blue: 18/255)))
+        .frame(width: 96, height: 44)
+        .opacity(model.state == .hidden ? 0 : 1)
+        .scaleEffect(reduceMotion ? 1 : (model.state == .hidden ? 0.82 : 1))
+        .animation(.easeOut(duration: 0.18), value: model.state)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(model.state == .transcribing ? "Transcribing" : "Recording")
+        .accessibilityHidden(model.state == .hidden)
     }
 }
 

@@ -8,6 +8,14 @@ Releases up to and including v0.0.5 were published by the upstream project,
 [digimata/parrot](https://github.com/digimata/parrot/releases). This fork
 picks up from there.
 
+## [0.3.0] - 2026-09-13
+
+### Added
+
+- **Recording indicator** menu with **Simple** (compact bars) and **Reactor**
+  (circular animation). The choice is saved across launches and applies
+  immediately, with Reactor as the default.
+
 ## [0.2.0] - 2026-09-13
 
 ### Changed
@@ -86,5 +94,6 @@ upstream pull requests merged or cherry-picked ahead of upstream.
 - Language detection is gated on multilingual models — English-only (`.en`)
   models have no language tokens to detect with.
 
+[0.3.0]: https://github.com/FernandoGomes83/parrot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/FernandoGomes83/parrot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/FernandoGomes83/parrot/compare/v0.0.5...v0.1.0

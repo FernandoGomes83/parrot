@@ -8,7 +8,7 @@
 # Piping to sh leaves no way to pass arguments, so env vars are the only
 # mechanism. Pin a specific release with PARROT_VERSION, or install from a
 # different fork with PARROT_REPOSITORY:
-#   curl -fsSL ... | PARROT_VERSION=v0.2.0 sh
+#   curl -fsSL ... | PARROT_VERSION=v0.3.0 sh
 #   curl -fsSL ... | PARROT_REPOSITORY=digimata/parrot sh
 #
 # Apple Silicon only — WhisperKit uses the Apple Neural Engine via CoreML,

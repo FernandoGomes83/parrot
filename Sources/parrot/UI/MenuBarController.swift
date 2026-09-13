@@ -17,6 +17,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Set by the daemon right after init — the handler needs the controller
     /// itself to report the outcome, so it can't be passed in.
     var onModelChanged: ((TranscriptionModel) -> Void)?
+    var onOverlayStyleChanged: ((OverlayStyle) -> Void)?
 
     init(
         model: TranscriptionModel,
@@ -91,6 +92,23 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let hotkeyItem = NSMenuItem(title: "Push-to-talk key", action: nil, keyEquivalent: "")
         hotkeyItem.submenu = hotkeyMenu
         menu.addItem(hotkeyItem)
+
+        let indicatorMenu = NSMenu()
+        let selectedStyle = OverlayPreferences.selected
+        for style in OverlayStyle.allCases {
+            let item = NSMenuItem(
+                title: style.displayName,
+                action: #selector(overlayStyleClicked(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = style == selectedStyle ? .on : .off
+            indicatorMenu.addItem(item)
+        }
+        let indicatorItem = NSMenuItem(title: "Recording indicator", action: nil, keyEquivalent: "")
+        indicatorItem.submenu = indicatorMenu
+        menu.addItem(indicatorItem)
 
         menu.addItem(.separator())
 
@@ -179,6 +197,18 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func quitClicked() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func overlayStyleClicked(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let style = OverlayStyle(rawValue: rawValue)
+        else { return }
+
+        OverlayPreferences.selected = style
+        onOverlayStyleChanged?(style)
+        for item in sender.menu?.items ?? [] {
+            item.state = item === sender ? .on : .off
+        }
     }
 
     @objc private func hotkeyClicked(_ sender: NSMenuItem) {

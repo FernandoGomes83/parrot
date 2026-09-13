@@ -128,6 +128,9 @@ struct Run: ParsableCommand {
                 devices: devices,
                 onHotkeyChanged: { monitor.setHotkey($0) }
             )
+            controller.onOverlayStyleChanged = { style in
+                overlay?.setStyle(style)
+            }
             controller.onModelChanged = { [weak controller] newModel in
                 guard let controller else { return }
                 switchModel(to: newModel, holder: holder, menuBar: controller)

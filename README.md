@@ -27,7 +27,7 @@ Pin a version, or install from a different fork — piping to `sh` leaves no way
 to pass arguments, so use the environment:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | PARROT_VERSION=v0.2.0 sh
+curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | PARROT_VERSION=v0.3.0 sh
 curl -fsSL https://raw.githubusercontent.com/FernandoGomes83/parrot/master/scripts/install.sh | PARROT_REPOSITORY=digimata/parrot sh
 ```
 
@@ -56,7 +56,7 @@ Developer ID (planned):
 ### Verifying a release by hand
 
 ```sh
-TAG=v0.2.0
+TAG=v0.3.0
 curl -fsSLO https://github.com/FernandoGomes83/parrot/releases/download/$TAG/parrot-macos-arm64.tar.gz
 curl -fsSLO https://github.com/FernandoGomes83/parrot/releases/download/$TAG/parrot-macos-arm64.tar.gz.sha256
 shasum -a 256 -c parrot-macos-arm64.tar.gz.sha256
@@ -78,7 +78,7 @@ failed provenance check as a warning rather than aborting. Set
 
 1. **Run it.** Either `parrot install --launch-at-login` (daemonized, runs forever, lives in the menu bar), or `parrot` in any terminal tab.
 2. **Click into the text field you want to dictate into** — Messages, the address bar, a Slack thread, anywhere a cursor blinks.
-3. **Hold the push-to-talk key (`fn` by default), speak, release.** A circular cyan reactor appears at the bottom of the screen, reacting to your voice; it turns amber while transcribing. You can switch the key to another modifier with `--hotkey` or from the menu bar (see below).
+3. **Hold the push-to-talk key (`fn` by default), speak, release.** A circular cyan reactor appears at the bottom of the screen, reacting to your voice; it turns amber while transcribing. Choose **Recording indicator → Simple** in the menu bar for the compact bars, or **Reactor** for the circular animation. Your choice is saved and takes effect immediately. You can switch the key to another modifier with `--hotkey` or from the menu bar (see below).
 4. **The transcript is pasted in at the cursor** when you release. Usually within 200-300ms.
 
 That's it. There is no record button, no stop button, no "send" — one held key is the whole interface.
