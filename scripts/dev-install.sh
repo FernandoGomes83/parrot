@@ -23,16 +23,24 @@ if ! security find-identity -p codesigning -v | grep -q "$IDENTITY"; then
 fi
 
 echo "→ building release..."
-swift build -c release
+sh scripts/build.sh
 
 echo "→ signing with '$IDENTITY'..."
 # The identifier must stay constant: TCC keys the Accessibility grant on
 # identifier + signing certificate.
-codesign --force --sign "$IDENTITY" --identifier "$LABEL" .build/release/parrot
-codesign --verify --strict .build/release/parrot
+codesign --force --sign "$IDENTITY" --identifier "$LABEL" dist/parrot
+codesign --verify --strict dist/parrot
 
 echo "→ installing to $DEST (sudo)..."
-sudo cp .build/release/parrot "$DEST"
+BUILD_ID=$(shasum -a 256 dist/parrot | cut -c1-12)
+RUNTIME_DIR="/usr/local/lib/parrot/dev-$BUILD_ID"
+sudo mkdir -p "$RUNTIME_DIR"
+sudo install -m 755 dist/parrot "$RUNTIME_DIR/parrot"
+sudo install -m 644 dist/mlx.metallib "$RUNTIME_DIR/mlx.metallib"
+LINK_DIR=$(mktemp -d)
+trap 'rm -rf "$LINK_DIR"' EXIT
+ln -s "$RUNTIME_DIR/parrot" "$LINK_DIR/parrot"
+sudo mv -f "$LINK_DIR/parrot" "$DEST"
 
 # Restart the LaunchAgent if one is installed; harmless otherwise.
 if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then

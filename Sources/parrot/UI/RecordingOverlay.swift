@@ -9,6 +9,7 @@ final class RecordingOverlay {
         case hidden
         case recording
         case transcribing
+        case translating
     }
 
     private var window: NSPanel?
@@ -138,7 +139,7 @@ struct SimpleRecordingIndicator: View {
 
     var body: some View {
         ZStack {
-            if model.state == .transcribing {
+            if model.state == .transcribing || model.state == .translating {
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.8)
@@ -164,7 +165,7 @@ struct SimpleRecordingIndicator: View {
         .scaleEffect(reduceMotion ? 1 : (model.state == .hidden ? 0.82 : 1))
         .animation(.easeOut(duration: 0.18), value: model.state)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(model.state == .transcribing ? "Transcribing" : "Recording")
+        .accessibilityLabel(model.state == .translating ? "Translating" : (model.state == .transcribing ? "Transcribing" : "Recording"))
         .accessibilityHidden(model.state == .hidden)
     }
 }
@@ -173,7 +174,7 @@ struct RecordingReactor: View {
     @ObservedObject var model: OverlayModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var transcribing: Bool { model.state == .transcribing }
+    private var transcribing: Bool { model.state == .transcribing || model.state == .translating }
     private var tint: Color {
         transcribing
             ? Color(red: 1, green: 0.72, blue: 0.32)
@@ -191,7 +192,7 @@ struct RecordingReactor: View {
         .scaleEffect(reduceMotion ? 1 : (model.state == .hidden ? 0.82 : 1))
         .animation(.easeOut(duration: 0.18), value: model.state)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(transcribing ? "Transcribing" : "Recording")
+        .accessibilityLabel(model.state == .translating ? "Translating" : (transcribing ? "Transcribing" : "Recording"))
         .accessibilityHidden(model.state == .hidden)
     }
 

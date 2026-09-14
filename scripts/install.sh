@@ -8,7 +8,7 @@
 # Piping to sh leaves no way to pass arguments, so env vars are the only
 # mechanism. Pin a specific release with PARROT_VERSION, or install from a
 # different fork with PARROT_REPOSITORY:
-#   curl -fsSL ... | PARROT_VERSION=v0.3.0 sh
+#   curl -fsSL ... | PARROT_VERSION=v0.4.0 sh
 #   curl -fsSL ... | PARROT_REPOSITORY=digimata/parrot sh
 #
 # Apple Silicon only — WhisperKit uses the Apple Neural Engine via CoreML,
@@ -22,6 +22,7 @@ set -eu
 REPO="${PARROT_REPOSITORY:-FernandoGomes83/parrot}"
 BIN_NAME="parrot"
 INSTALL_DIR="/usr/local/bin"
+RUNTIME_DIR="/usr/local/lib/parrot"
 ASSET="parrot-macos-arm64.tar.gz"
 
 red()    { printf "\033[31m%s\033[0m\n" "$*" >&2; }
@@ -70,6 +71,13 @@ else
     fi
     dim "  ${TAG}"
 fi
+
+case "$TAG" in
+    ""|"."|".."|*[!A-Za-z0-9._-]*)
+        red "invalid release tag: $TAG"
+        exit 1
+        ;;
+esac
 
 URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
 
@@ -140,9 +148,20 @@ if printf '%s\n' "$MEMBERS" | grep -qE '^/|(^|/)\.\.(/|$)'; then
     printf '%s\n' "$MEMBERS" >&2
     exit 1
 fi
-if [ "$MEMBERS" != "$BIN_NAME" ]; then
-    red "archive should contain exactly one member (${BIN_NAME}), got:"
-    printf '%s\n' "$MEMBERS" >&2
+# Legacy releases contain only the executable. Translation-enabled releases
+# also carry one Metal library, built from exactly the same MLX dependency.
+SORTED_MEMBERS=$(printf '%s\n' "$MEMBERS" | LC_ALL=C sort)
+EXPECTED_MEMBERS=$(printf '%s\n' "mlx.metallib" "$BIN_NAME")
+HAS_RUNTIME=0
+if [ "$SORTED_MEMBERS" = "$EXPECTED_MEMBERS" ]; then
+    HAS_RUNTIME=1
+elif [ "$MEMBERS" != "$BIN_NAME" ]; then
+    red "unexpected archive contents — expected parrot and optional mlx.metallib"
+    exit 1
+fi
+# Both allowed entries must be regular files, never links or directories.
+if tar -tvzf "$TMP/${ASSET}" | cut -c1 | grep -qv '^-'; then
+    red "archive contains non-regular entries — refusing to extract"
     exit 1
 fi
 
@@ -170,21 +189,35 @@ fi
 
 # 8. install
 SUDO=""
-if [ ! -w "$INSTALL_DIR" ]; then
-    if [ ! -d "$INSTALL_DIR" ]; then
-        dim "→ creating ${INSTALL_DIR} (sudo)..."
-        sudo mkdir -p "$INSTALL_DIR"
-    fi
+if [ ! -w "$INSTALL_DIR" ] || { [ "$HAS_RUNTIME" = 1 ] && [ ! -w "$RUNTIME_DIR" ]; }; then
     SUDO="sudo"
 fi
+$SUDO mkdir -p "$INSTALL_DIR"
 
-dim "→ installing to ${INSTALL_DIR}/${BIN_NAME}..."
-$SUDO mv "$TMP/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
-$SUDO chmod +x "${INSTALL_DIR}/${BIN_NAME}"
+if [ "$HAS_RUNTIME" = 1 ]; then
+    # Versioned directories keep the previous process and its shaders intact
+    # until the new, complete runtime is selected and the daemon restarts.
+    DEST="$RUNTIME_DIR/$TAG"
+    $SUDO mkdir -p "$DEST"
+    $SUDO install -m 755 "$TMP/$BIN_NAME" "$DEST/$BIN_NAME"
+    $SUDO install -m 644 "$TMP/mlx.metallib" "$DEST/mlx.metallib"
+    $SUDO ln -s "$DEST/$BIN_NAME" "$TMP/parrot-link"
+    $SUDO mv -f "$TMP/parrot-link" "$INSTALL_DIR/$BIN_NAME"
+else
+    # Keep pinned legacy releases installable with the current installer.
+    $SUDO mv "$TMP/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
+    $SUDO chmod +x "$INSTALL_DIR/$BIN_NAME"
+fi
 
 green "✓ parrot ${TAG} installed at ${INSTALL_DIR}/${BIN_NAME}"
+SERVICE="gui/$(id -u)/com.digimata.parrot"
+if launchctl print "$SERVICE" >/dev/null 2>&1; then
+    launchctl kickstart -k "$SERVICE"
+    green "✓ restarted parrot"
+fi
 echo
 echo "next:"
 echo "  parrot setup                       # grant mic + accessibility"
 echo "  parrot install --launch-at-login   # (optional) start at login"
 echo "  parrot                             # run the daemon"
+echo "Enable Translation in the menu to download the optional local model."

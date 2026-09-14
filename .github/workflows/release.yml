@@ -22,6 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: swift version
         run: swift --version
 
@@ -34,23 +42,27 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: build
-        run: swift build -c release --arch arm64
-
-      - name: stage
+      - name: test
         run: |
-          BIN=.build/arm64-apple-macosx/release/parrot
-          file "$BIN"
-          mkdir -p dist
-          cp "$BIN" dist/parrot
+          swift test -c release
+          python3 Tests/install_test.py
 
-      - name: strip
-        run: strip -x dist/parrot
+      - name: build
+        run: sh scripts/build.sh
+
+      - name: smoke test packaged executable
+        run: dist/parrot --help
+
+      - name: strip and sign
+        run: |
+          strip -x dist/parrot
+          codesign --force --sign - dist/parrot
+          codesign --verify --strict dist/parrot
 
       - name: package
         run: |
           cd dist
-          tar -czf parrot-macos-arm64.tar.gz parrot
+          tar -czf parrot-macos-arm64.tar.gz parrot mlx.metallib
           shasum -a 256 parrot-macos-arm64.tar.gz > parrot-macos-arm64.tar.gz.sha256
           ls -lh
 

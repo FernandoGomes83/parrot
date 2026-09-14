@@ -1,4 +1,5 @@
 import AppKit
+import ParrotTranslation
 
 /// Status bar item in the top-right of the menu bar. Shows recording state at
 /// a glance and provides the only persistent control surface for the daemon
@@ -10,6 +11,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let stateLabel: NSMenuItem
     private let inputItem: NSMenuItem
     private let modelItem: NSMenuItem
+    private let translationItem: NSMenuItem
+    private let translation: TranslationCoordinator
     private var model: TranscriptionModel
     private var hotkey: HotkeyMonitor.Hotkey
     private let devices: InputDeviceStore
@@ -23,11 +26,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         model: TranscriptionModel,
         hotkey: HotkeyMonitor.Hotkey,
         devices: InputDeviceStore,
+        translation: TranslationCoordinator,
         onHotkeyChanged: @escaping (HotkeyMonitor.Hotkey) -> Void
     ) {
         self.model = model
         self.hotkey = hotkey
         self.devices = devices
+        self.translation = translation
         self.onHotkeyChanged = onHotkeyChanged
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -54,6 +59,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         modelMenu.autoenablesItems = false
         modelItem.submenu = modelMenu
 
+        translationItem = NSMenuItem(title: "Translation", action: nil, keyEquivalent: "")
+
         // All stored properties are set; NSObject init must precede the menu
         // items below, which take self as their target.
         super.init()
@@ -74,6 +81,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(modelLabel)
         menu.addItem(modelItem)
         menu.addItem(inputItem)
+        menu.addItem(translationItem)
+        rebuildTranslationMenu()
+        translation.onChange = { [weak self] in self?.rebuildTranslationMenu() }
 
         menu.addItem(.separator())
 
@@ -154,7 +164,19 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         devices.selectedUID = sender.representedObject as? String
     }
 
+    func setTranslating(to language: TranslationLanguage) {
+        stateLabel.title = "translating → \(language.displayName)…"
+    }
+
+    func setTranslationFailed() {
+        stateLabel.title = "Translation failed · original in Translation menu"
+        statusItem.button?.title = "!"
+        statusItem.button?.toolTip = stateLabel.title
+    }
+
     func setRecording(_ recording: Bool) {
+        statusItem.button?.title = ""
+        statusItem.button?.toolTip = "Parrot"
         stateLabel.title = recording
             ? "● recording"
             : "idle · hold \(hotkey.displayName) to dictate"
@@ -225,6 +247,84 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         for item in sender.menu?.items ?? [] {
             item.state = item === sender ? .on : .off
         }
+    }
+
+    private func rebuildTranslationMenu() {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        let enabled = translation.preferences.enabled
+        let toggle = NSMenuItem(title: enabled ? "Disable translation" : "Enable translation",
+                                action: #selector(translationToggled), keyEquivalent: "")
+        toggle.target = self
+        toggle.state = enabled ? (translation.state == .ready ? .on : .mixed) : .off
+        submenu.addItem(toggle)
+
+        let status: String
+        switch translation.state {
+        case .off: status = "Local translation · off"
+        case .preparing(let percent):
+            status = percent == 100 ? "Loading translator…" : "Preparing translator · \(percent)%"
+        case .ready: status = "Local translation · ready"
+        case .failed: status = "Setup failed · enable to retry"
+        }
+        let statusRow = NSMenuItem(title: status, action: nil, keyEquivalent: "")
+        statusRow.isEnabled = false
+        statusRow.toolTip = translation.setupFailure
+        submenu.addItem(statusRow)
+        let modelRow = NSMenuItem(title: "TranslateGemma 4B · download ~2.2 GB", action: nil, keyEquivalent: "")
+        modelRow.isEnabled = false
+        submenu.addItem(modelRow)
+        submenu.addItem(.separator())
+
+        for isSource in [true, false] {
+            let selected = isSource ? translation.preferences.source : translation.preferences.target
+            let title = "\(isSource ? "From" : "To"): \(selected.displayName)"
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let choices = NSMenu()
+            for language in TranslationLanguage.allCases {
+                let choice = NSMenuItem(title: language.displayName,
+                    action: isSource ? #selector(translationSourceSelected(_:)) : #selector(translationTargetSelected(_:)),
+                    keyEquivalent: "")
+                choice.target = self
+                choice.representedObject = language.rawValue
+                choice.state = selected == language ? .on : .off
+                choices.addItem(choice)
+            }
+            item.submenu = choices
+            submenu.addItem(item)
+        }
+        if translation.failedOriginal != nil {
+            submenu.addItem(.separator())
+            let error = NSMenuItem(title: "Translation failed", action: nil, keyEquivalent: "")
+            error.isEnabled = false
+            error.toolTip = translation.failureDescription
+            submenu.addItem(error)
+            let copy = NSMenuItem(title: "Copy original dictation", action: #selector(copyOriginalDictation), keyEquivalent: "")
+            copy.target = self
+            submenu.addItem(copy)
+        }
+        translationItem.submenu = submenu
+    }
+
+    @objc private func translationToggled() { translation.toggle() }
+
+    @objc private func translationSourceSelected(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let language = TranslationLanguage(rawValue: raw) else { return }
+        translation.setSource(language)
+    }
+
+    @objc private func translationTargetSelected(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let language = TranslationLanguage(rawValue: raw) else { return }
+        translation.setTarget(language)
+    }
+
+    @objc private func copyOriginalDictation() {
+        guard let text = translation.takeOriginal() else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        setRecording(false)
     }
 
     /// Loading a model can mean downloading hundreds of megabytes, so the swap

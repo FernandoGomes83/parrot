@@ -8,6 +8,29 @@ Releases up to and including v0.0.5 were published by the upstream project,
 [digimata/parrot](https://github.com/digimata/parrot/releases). This fork
 picks up from there.
 
+## [0.4.0] - 2026-09-14
+
+### Added
+
+- Optional, fully local translation with TranslateGemma 4B (4-bit), downloaded
+  on first activation. No Ollama process or cloud API is required.
+- **Translation** menu with an on/off switch and 26 source/target language
+  choices. Defaults to off, with Portuguese (Brazil) → English selected.
+- Setup progress, model unloading when disabled, and **Copy original dictation**
+  recovery when translation fails.
+- `parrot translate --from pt-BR --to en` for text translation without a microphone.
+- Protection for code, common identifiers, URLs and numeric/currency literals;
+  missing or duplicated placeholders reject the generated result.
+
+### Changed
+
+- Release builds include the matching MLX Metal library and install complete,
+  versioned runtimes with a command symlink and automatic LaunchAgent restart.
+  The installer continues to accept older single-file releases.
+- Prevent a second recording while the previous result is processing, so
+  transcriptions and translations cannot overwrite or paste out of order.
+- Add focused translation lifecycle and installer tests to the release workflow.
+
 ## [0.3.0] - 2026-09-13
 
 ### Added
@@ -94,6 +117,7 @@ upstream pull requests merged or cherry-picked ahead of upstream.
 - Language detection is gated on multilingual models — English-only (`.en`)
   models have no language tokens to detect with.
 
+[0.4.0]: https://github.com/FernandoGomes83/parrot/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/FernandoGomes83/parrot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/FernandoGomes83/parrot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/FernandoGomes83/parrot/compare/v0.0.5...v0.1.0

@@ -4,7 +4,7 @@ import Foundation
 /// Manage parrot's LaunchAgent so the daemon starts at login.
 ///
 /// We deliberately do NOT use SMAppService.mainApp here — that requires a full
-/// .app bundle. Since parrot ships as a single binary in /usr/local/bin, a
+/// .app bundle. Since parrot exposes an executable at /usr/local/bin/parrot, a
 /// plain LaunchAgent plist is the simpler, more honest mechanism.
 struct Install: ParsableCommand {
     static let configuration = CommandConfiguration(

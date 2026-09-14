@@ -1,6 +1,7 @@
 import AppKit
 import ArgumentParser
 import Foundation
+import ParrotTranslation
 import WhisperKit
 
 @main
@@ -8,7 +9,7 @@ struct Parrot: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "parrot",
         abstract: "Minimal macOS dictation daemon. Hold the push-to-talk key (Fn by default), speak, release.",
-        subcommands: [Run.self, Setup.self, Doctor.self, Models.self, Install.self],
+        subcommands: [Run.self, Setup.self, Doctor.self, Models.self, Install.self, Translate.self],
         defaultSubcommand: Run.self
     )
 }
@@ -109,6 +110,10 @@ struct Run: ParsableCommand {
         let monitor = HotkeyMonitor(hotkey: selectedHotkey, debug: debugHotkey)
         let devices = InputDeviceStore()
         let capture = AudioCapture()
+        let translation = MainActor.assumeIsolated {
+            TranslationCoordinator(engine: LocalTranslator())
+        }
+        let lifecycle = MainActor.assumeIsolated { DictationLifecycle() }
         let dumpWav = self.dumpWav
         let echoTranscripts = self.echoTranscripts
         let injectMode = self.injectMode
@@ -126,6 +131,7 @@ struct Run: ParsableCommand {
                 model: chosenModel,
                 hotkey: selectedHotkey,
                 devices: devices,
+                translation: translation,
                 onHotkeyChanged: { monitor.setHotkey($0) }
             )
             controller.onOverlayStyleChanged = { style in
@@ -138,67 +144,105 @@ struct Run: ParsableCommand {
             return controller
         }
 
+        MainActor.assumeIsolated { translation.restore() }
+
         do {
             try monitor.start { event in
-                switch event {
-                case .pressed:
-                    do {
-                        try capture.start(device: devices.resolved()?.id)
-                        FileHandle.standardError.write(Data("● recording\n".utf8))
-                        MainActor.assumeIsolated {
-                            overlay?.show(.recording)
-                            menuBar.setRecording(true)
+                MainActor.assumeIsolated {
+                    switch event {
+                    case .pressed:
+                        guard !lifecycle.isProcessing else {
+                            NSSound.beep()
+                            return
                         }
-                    } catch {
-                        FileHandle.standardError.write(Data("capture failed: \(error)\n".utf8))
-                    }
-                case .released:
-                    let samples = capture.stop()
-                    MainActor.assumeIsolated {
-                        overlay?.show(.transcribing)
-                        menuBar.setTranscribing()
-                    }
-                    let seconds = Double(samples.count) / AudioCapture.targetSampleRate
-                    let rms = computeRMS(samples)
-                    FileHandle.standardError.write(Data(
-                        String(format: "○ captured %.2fs · rms %.3f\n", seconds, rms).utf8
-                    ))
-                    if dumpWav, !samples.isEmpty {
                         do {
-                            let path = try dumpWavPath()
-                            try WAVWriter.write(samples: samples, sampleRate: 16_000, to: path)
-                            FileHandle.standardError.write(Data("  wrote \(path)\n".utf8))
+                            try capture.start(device: devices.resolved()?.id)
+                            lifecycle.isCapturing = true
+                            FileHandle.standardError.write(Data("● recording\n".utf8))
+                            MainActor.assumeIsolated {
+                                overlay?.show(.recording)
+                                menuBar.setRecording(true)
+                            }
                         } catch {
-                            FileHandle.standardError.write(Data("  wav write failed: \(error)\n".utf8))
+                            FileHandle.standardError.write(Data("capture failed: \(error)\n".utf8))
                         }
-                    }
-                    guard !samples.isEmpty else {
+                    case .released:
+                        guard lifecycle.isCapturing else { return }
+                        lifecycle.isCapturing = false
+                        lifecycle.isProcessing = true
+                        let samples = capture.stop()
                         MainActor.assumeIsolated {
-                            overlay?.hide()
-                            menuBar.setRecording(false)
+                            overlay?.show(.transcribing)
+                            menuBar.setTranscribing()
                         }
-                        return
-                    }
-                    let active = MainActor.assumeIsolated { holder.transcriber }
-                    Task {
-                        let started = Date()
-                        do {
-                            let text = try await active.transcribe(samples)
-                            let elapsed = Date().timeIntervalSince(started)
-                            let line = echoTranscripts
-                                ? String(format: "→ %.2fs · %@\n", elapsed, text)
-                                : String(format: "→ %.2fs · %ld chars\n", elapsed, text.count)
-                            FileHandle.standardError.write(Data(line.utf8))
-                            await MainActor.run {
-                                TextInjector.inject(text, mode: injectMode)
+                        let seconds = Double(samples.count) / AudioCapture.targetSampleRate
+                        let rms = computeRMS(samples)
+                        FileHandle.standardError.write(Data(
+                            String(format: "○ captured %.2fs · rms %.3f\n", seconds, rms).utf8
+                        ))
+                        if dumpWav, !samples.isEmpty {
+                            do {
+                                let path = try dumpWavPath()
+                                try WAVWriter.write(samples: samples, sampleRate: 16_000, to: path)
+                                FileHandle.standardError.write(Data("  wrote \(path)\n".utf8))
+                            } catch {
+                                FileHandle.standardError.write(Data("  wav write failed: \(error)\n".utf8))
+                            }
+                        }
+                        guard !samples.isEmpty else {
+                            lifecycle.isProcessing = false
+                            MainActor.assumeIsolated {
                                 overlay?.hide()
                                 menuBar.setRecording(false)
                             }
-                        } catch {
-                            FileHandle.standardError.write(Data("transcription failed: \(error)\n".utf8))
-                            await MainActor.run {
-                                overlay?.hide()
-                                menuBar.setRecording(false)
+                            return
+                        }
+                        let active = MainActor.assumeIsolated { holder.transcriber }
+                        let languagePair = MainActor.assumeIsolated { translation.beginRequest() }
+                        Task {
+                            let started = Date()
+                            do {
+                                let text = try await active.transcribe(samples)
+                                var output = text
+                                if let languagePair, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    await MainActor.run {
+                                        overlay?.show(.translating)
+                                        menuBar.setTranslating(to: languagePair.target)
+                                    }
+                                    do {
+                                        output = try await translation.translate(text, languages: languagePair)
+                                    } catch {
+                                        FileHandle.standardError.write(Data("translation failed — original available in menu\n".utf8))
+                                        await MainActor.run {
+                                            translation.endRequest()
+                                            lifecycle.isProcessing = false
+                                            overlay?.hide()
+                                            menuBar.setTranslationFailed()
+                                        }
+                                        return
+                                    }
+                                }
+                                let elapsed = Date().timeIntervalSince(started)
+                                let line = echoTranscripts
+                                    ? String(format: "→ %.2fs · %@\n", elapsed, output)
+                                    : String(format: "→ %.2fs · %ld chars\n", elapsed, output.count)
+                                FileHandle.standardError.write(Data(line.utf8))
+                                let finalOutput = output
+                                await MainActor.run {
+                                    TextInjector.inject(finalOutput, mode: injectMode)
+                                    if languagePair != nil { translation.endRequest() }
+                                    lifecycle.isProcessing = false
+                                    overlay?.hide()
+                                    menuBar.setRecording(false)
+                                }
+                            } catch {
+                                FileHandle.standardError.write(Data("transcription failed: \(error)\n".utf8))
+                                await MainActor.run {
+                                    if languagePair != nil { translation.endRequest() }
+                                    lifecycle.isProcessing = false
+                                    overlay?.hide()
+                                    menuBar.setRecording(false)
+                                }
                             }
                         }
                     }
@@ -226,6 +270,13 @@ struct Run: ParsableCommand {
         ))
         app.run()
     }
+}
+
+/// Hotkey callbacks and completion handlers share one main-actor lifecycle.
+@MainActor
+final class DictationLifecycle {
+    var isCapturing = false
+    var isProcessing = false
 }
 
 /// Mutable seat for the live transcriber, so the model can be swapped from the

@@ -6,14 +6,15 @@ collected at the end.
 
 ## Goals
 
-1. **Single binary.** One SPM executable target, launched from a terminal or as
-   a LaunchAgent. No `.app` bundle, no dock icon, no settings window.
+1. **Small local runtime.** An SPM executable and its matching Metal library,
+   launched from a terminal or as a LaunchAgent. No `.app` bundle, dock icon,
+   or settings window. Translation is isolated in the `ParrotTranslation` module.
 2. **Push-to-talk.** Hold a modifier key (`fn` by default, configurable), speak,
    release — the transcript is pasted at the cursor.
 3. **Minimal UI.** A menu bar status item (model, input device, push-to-talk
-   key, quit) and a click-through audio reactor at the bottom of the screen.
+   key, indicator style, translation, quit) and a click-through indicator at the bottom of the screen.
    Nothing else.
-4. **On-device.** No network calls for transcription. Audio never leaves the
+4. **On-device.** No network calls for inference; model downloads are separate. Audio never leaves the
    machine. Transcripts are never written to disk.
 5. **Pluggable engines.** A `Transcriber` protocol with WhisperKit and
    FluidAudio (Parakeet) implementations; a hardcoded registry is the single
@@ -23,7 +24,7 @@ collected at the end.
 
 - Cross-platform (macOS only, Apple Silicon only — inference runs on the ANE)
 - Cloud transcription providers
-- AI post-processing, summarization, agents
+- Free-form AI rewriting, summarization, agents
 - Speaker diarization, meeting recording, semantic search
 - Streaming partial transcripts, VAD-based hands-free mode
 - History, transcript log, custom vocabulary
@@ -163,6 +164,32 @@ levels drive the cyan core and radial meter; counter-rotating rings turn amber
 and accelerate during transcription. A 30 fps timeline pauses while hidden or
 when Reduce Motion is enabled. Pending dismissals are cancelled on reappearance.
 
+### Local translation
+
+`TranslationCoordinator` owns the persisted on/off preference and the source/target
+languages, defaulting to off and Portuguese (Brazil) → English. `LocalTranslator`
+implements the `TextTranslating` boundary in a separate module using MLX Swift and
+TranslateGemma 4B (4-bit). Model files are downloaded only when enabled, under
+Application Support, with a pinned Hugging Face revision. A completion marker is
+written only after an uncancelled snapshot completes; subsequent loads are offline.
+
+Setup/unload tasks are serialized so rapid toggles cannot race downloads or resurrect
+stale UI state. Dictation continues untranslated during preparation. Once ready,
+each request captures a language pair and holds a lease on the model until it
+finishes; disabling translation frees weights after the last lease ends.
+
+The model's structured chat template receives one text block and language codes.
+It does not receive a free-form system prompt, a chat history, or previous dictations.
+Generation is greedy with a fresh KV cache for each utterance. Code, common
+identifiers, URLs and numeric literals are replaced with collision-free placeholders
+and restored only if every placeholder appears exactly once. Token-limit exhaustion
+and empty output are errors, not successful partial translations.
+
+On failure, the original text stays in memory for **Translation → Copy original
+dictation**. Nothing is pasted automatically and no transcript is added to logs.
+Missing shaders or GPU access are detected before MLX initializes its runtime.
+The overlay and menu show a translating state while inference runs.
+
 ### `Install.swift`
 
 Writes `~/Library/LaunchAgents/com.digimata.parrot.plist` (label
@@ -211,24 +238,35 @@ and the code signature.**
    starts on the chosen input device.
 3. User releases → overlay switches to transcribing, the buffer goes to the
    active `Transcriber`, CoreML inference runs on the ANE.
-4. `TextInjector` pastes the transcript at the cursor and restores the
-   pasteboard. Overlay hides. Loop.
+4. If translation is ready and enabled, the captured language pair routes the
+   transcript through `LocalTranslator`; otherwise the original text passes through.
+5. `TextInjector` pastes the result at the cursor and restores the pasteboard.
+   Overlay hides. A second recording cannot start while a result is processing,
+   preventing overlapping transcriptions/translations from pasting out of order.
 
-Latency target: <500 ms after release for utterances under 10 seconds. The
-daemon logs timing and length only (`→ 0.42s · 63 chars`) — never the text.
+The original <500 ms latency target applies to transcription alone; optional
+translation adds a generation pass. The daemon logs timing and length only (`→ 0.42s · 63 chars`) — never the text.
 
 ## Distribution
 
-Tag `v*` → GitHub Actions (`release.yml`) builds arm64 on macOS, strips,
+Tag `v*` (or dispatch on a tag) → GitHub Actions (`release.yml`) tests and builds
+arm64 with Xcode through `scripts/build.sh`, compiles the MLX Metal library, strips,
 packages `parrot-macos-arm64.tar.gz` + `.sha256`, signs a build-provenance
 attestation via OIDC, and publishes the release. `scripts/install.sh`
 (`curl | sh`) resolves the latest release, verifies the checksum fail-closed,
 checks the attestation (advisory — `PARROT_REQUIRE_ATTESTATION=1` makes it
-fatal), inspects the archive, and installs to `/usr/local/bin`.
+fatal), and accepts only the expected regular archive entries. The executable and
+`mlx.metallib` are installed together in `/usr/local/lib/parrot/<tag>/`; the installer
+then replaces the `/usr/local/bin/parrot` symlink and restarts an existing LaunchAgent.
+The prior runtime remains available to an already running process until restart.
+The installer still accepts legacy archives containing only the executable.
 `PARROT_VERSION` pins a release; `PARROT_REPOSITORY` overrides the repo.
 
 ## Where reality diverged from the original design
 
+- **Translation is optional post-processing.** It adds a native MLX module and
+  a Metal library to the distribution; a plain `swift build` no longer produces
+  all resources needed for translation.
 - **A menu bar item exists** (it was an explicit non-goal): switching model,
   input, and hotkey while running earned it. There is still no dock icon,
   settings window, or `.app` bundle.

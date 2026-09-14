@@ -6,3 +6,7 @@
 
 # kdb auto-rendered task index (regenerate with `kdb render`)
 .tasks/
+
+# Xcode build products, including the MLX Metal library.
+.xcbuild/
+dist/
